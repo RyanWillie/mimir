@@ -5,23 +5,17 @@ edition.workspace = true
 license.workspace = true
 repository.workspace = true
 authors.workspace = true
-description = "SDK for Mimir AI Memory Vault client libraries"
+description = "Client SDK for Mimir AI Memory Vault"
 
 [dependencies]
 mimir-core = { path = "../mimir-core" }
-
+tokio.workspace = true
 serde.workspace = true
 serde_json.workspace = true
-thiserror.workspace = true
 anyhow.workspace = true
-tokio.workspace = true
-tracing.workspace = true
-
-# HTTP client
-reqwest = { version = "0.11", features = ["json"] }
-
-# Code generation
-cbindgen = "0.26"
 
 [dev-dependencies]
-tokio-test = "0.4" 
+mimir-core = { path = "../mimir-core", features = ["test-utils"] }
+tokio-test.workspace = true
+wiremock.workspace = true
+mockall.workspace = true 

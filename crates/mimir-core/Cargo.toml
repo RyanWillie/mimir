@@ -7,13 +7,31 @@ repository.workspace = true
 authors.workspace = true
 description = "Core types and utilities for Mimir AI Memory Vault"
 
+[features]
+default = []
+test-utils = ["dep:tempfile"]
+
 [dependencies]
 serde.workspace = true
 serde_json.workspace = true
-thiserror.workspace = true
-anyhow.workspace = true
-uuid.workspace = true
 chrono.workspace = true
-tracing.workspace = true
+uuid.workspace = true
+anyhow.workspace = true
+thiserror.workspace = true
+regex.workspace = true
+directories.workspace = true
 num_cpus.workspace = true
-directories.workspace = true 
+
+# Test utilities dependencies (only when test-utils feature is enabled)
+tempfile = { workspace = true, optional = true }
+
+[dev-dependencies]
+tokio-test.workspace = true
+tempfile.workspace = true
+proptest.workspace = true
+temp-env.workspace = true
+criterion.workspace = true
+
+[[bench]]
+name = "memory_operations"
+harness = false 

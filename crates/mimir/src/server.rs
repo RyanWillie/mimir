@@ -3,14 +3,22 @@ use tracing::info;
 use axum::{routing::get, Router};
 use tokio::net::TcpListener;
 
-/// Start the Mimir server with the given configuration
-pub async fn start(config: MimirConfig) -> Result<()> {
-    info!("Starting Mimir server on {}:{}", config.server.host, config.server.port);
-    
+/// Create the Axum application with all routes configured
+pub async fn create_app(_config: MimirConfig) -> Result<Router> {
     // Create a simple health check endpoint
     let app = Router::new()
         .route("/health", get(health_check))
         .route("/", get(root_handler));
+
+    Ok(app)
+}
+
+/// Start the Mimir server with the given configuration
+pub async fn start(config: MimirConfig) -> Result<()> {
+    info!("Starting Mimir server on {}:{}", config.server.host, config.server.port);
+    
+    // Create the application
+    let app = create_app(config.clone()).await?;
     
     let bind_address = format!("{}:{}", config.server.host, config.server.port);
     let listener = TcpListener::bind(&bind_address).await

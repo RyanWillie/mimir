@@ -7,5 +7,8 @@ pub mod types;
 pub mod error;
 pub mod config;
 
+#[cfg(any(test, feature = "test-utils"))]
+pub mod test_utils;
+
 pub use error::{MimirError, Result};
 pub use types::*; 

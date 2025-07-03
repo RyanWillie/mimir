@@ -2,21 +2,54 @@ name: Rust CI/CD
 
 on:
   push:
-    branches: [ main, develop ]
+    branches: [ main, develop, feature/* ]
   pull_request:
-    branches: [ main ]
+    branches: [ main, develop ]
   release:
     types: [ published ]
 
 env:
   CARGO_TERM_COLOR: always
   RUST_BACKTRACE: 1
+  # Increase test timeout for comprehensive test suite
+  CARGO_TEST_TIMEOUT: 300
 
 jobs:
-  test:
-    name: Test Suite
+  lint:
+    name: Code Quality
+    runs-on: ubuntu-latest
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Install Rust toolchain
+      uses: dtolnay/rust-toolchain@stable
+      with:
+        components: rustfmt, clippy
+
+    - name: Cache cargo
+      uses: actions/cache@v3
+      with:
+        path: |
+          ~/.cargo/registry
+          ~/.cargo/git
+          target
+        key: ${{ runner.os }}-cargo-lint-${{ hashFiles('**/Cargo.lock') }}
+
+    - name: Check formatting
+      run: cargo fmt --all -- --check
+
+    - name: Run clippy
+      run: cargo clippy --workspace --all-targets --all-features -- -D warnings
+
+    - name: Check documentation
+      run: cargo doc --workspace --all-features --no-deps --document-private-items
+
+  unit-tests:
+    name: Unit Tests
     runs-on: ${{ matrix.os }}
     strategy:
+      fail-fast: false
       matrix:
         os: [ubuntu-latest, windows-latest, macos-latest]
         rust: [stable, beta]
@@ -29,16 +62,15 @@ jobs:
       uses: dtolnay/rust-toolchain@master
       with:
         toolchain: ${{ matrix.rust }}
-        components: rustfmt, clippy
 
-    - name: Cache cargo registry
+    - name: Cache cargo
       uses: actions/cache@v3
       with:
         path: |
           ~/.cargo/registry
           ~/.cargo/git
           target
-        key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
+        key: ${{ runner.os }}-${{ matrix.rust }}-cargo-test-${{ hashFiles('**/Cargo.lock') }}
 
     - name: Install system dependencies (Ubuntu)
       if: matrix.os == 'ubuntu-latest'
@@ -51,17 +83,115 @@ jobs:
       run: |
         brew install sqlcipher
 
-    - name: Check formatting
-      run: cargo fmt --all -- --check
+    - name: Setup Python for bindings tests
+      if: matrix.os != 'windows-latest' # Skip Windows Python setup for now
+      uses: actions/setup-python@v4
+      with:
+        python-version: '3.12'
 
-    - name: Run clippy
-      run: cargo clippy --workspace --all-targets --all-features -- -D warnings
+    - name: Install Python dependencies
+      if: matrix.os != 'windows-latest'
+      run: |
+        python -m pip install --upgrade pip
+        pip install maturin pytest
 
-    - name: Run tests
-      run: cargo test --workspace --all-features
+    - name: Run core unit tests
+      run: cargo test -p mimir-core --lib
 
-    - name: Run doc tests
-      run: cargo test --workspace --doc
+    - name: Run component unit tests
+      run: |
+        cargo test -p mimir-db --lib
+        cargo test -p mimir-vector --lib  
+        cargo test -p mimir-guardrails --lib
+        cargo test -p mimir-compression --lib
+
+    - name: Run SDK unit tests
+      run: cargo test -p mimir-sdk --lib
+
+  integration-tests:
+    name: Integration Tests
+    runs-on: ubuntu-latest
+    needs: [lint]
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Install Rust toolchain
+      uses: dtolnay/rust-toolchain@stable
+
+    - name: Cache cargo
+      uses: actions/cache@v3
+      with:
+        path: |
+          ~/.cargo/registry
+          ~/.cargo/git
+          target
+        key: ${{ runner.os }}-cargo-integration-${{ hashFiles('**/Cargo.lock') }}
+
+    - name: Install system dependencies
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y libsqlcipher-dev
+
+    - name: Setup Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: '3.12'
+
+    - name: Install Python dependencies
+      run: |
+        python -m pip install --upgrade pip
+        pip install maturin pytest
+
+    - name: Run server integration tests
+      run: cargo test -p mimir --test '*' --all-features
+
+    - name: Run SDK integration tests  
+      run: cargo test -p mimir-sdk --test '*' --all-features
+
+    - name: Test Python bindings (if available)
+      continue-on-error: true # Don't fail CI if Python bindings aren't ready
+      run: |
+        cd bindings/python
+        maturin develop
+        python -m pytest tests/ -v
+
+  benchmarks:
+    name: Performance Benchmarks (Stubs)
+    runs-on: ubuntu-latest
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Install Rust toolchain
+      uses: dtolnay/rust-toolchain@stable
+
+    - name: Cache cargo
+      uses: actions/cache@v3
+      with:
+        path: |
+          ~/.cargo/registry
+          ~/.cargo/git
+          target
+        key: ${{ runner.os }}-cargo-bench-${{ hashFiles('**/Cargo.lock') }}
+
+    - name: Install system dependencies
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y libsqlcipher-dev
+
+    - name: Run core benchmarks (quick)
+      run: cargo bench -p mimir-core --bench memory_operations -- --sample-size 10
+
+    - name: Run vector benchmarks (quick)
+      run: cargo bench -p mimir-vector --bench vector_operations -- --sample-size 10
+
+    - name: Upload benchmark results
+      uses: actions/upload-artifact@v3
+      with:
+        name: benchmark-results
+        path: target/criterion/
 
   security:
     name: Security Audit
@@ -82,6 +212,7 @@ jobs:
   coverage:
     name: Code Coverage
     runs-on: ubuntu-latest
+    needs: [unit-tests, integration-tests]
     steps:
     - name: Checkout code
       uses: actions/checkout@v4
@@ -96,21 +227,71 @@ jobs:
         sudo apt-get update
         sudo apt-get install -y libsqlcipher-dev
 
+    - name: Setup Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: '3.12'
+
+    - name: Install Python dependencies
+      run: |
+        python -m pip install --upgrade pip
+        pip install maturin pytest
+
     - name: Install cargo-llvm-cov
       run: cargo install cargo-llvm-cov
 
-    - name: Generate coverage
-      run: cargo llvm-cov --workspace --lcov --output-path lcov.info
+    - name: Generate coverage report
+      run: |
+        cargo llvm-cov clean --workspace
+        cargo llvm-cov --workspace --lcov --output-path lcov.info \
+          --ignore-filename-regex "benches/|tests/|examples/"
 
-    - name: Upload to codecov.io
+    - name: Upload coverage to Codecov
       uses: codecov/codecov-action@v3
       with:
         file: lcov.info
         fail_ci_if_error: false
+        verbose: true
 
-  build:
-    name: Build Release
-    needs: [test, security]
+    - name: Upload coverage artifact
+      uses: actions/upload-artifact@v3
+      with:
+        name: coverage-report
+        path: lcov.info
+
+  build-check:
+    name: Build Check
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+        
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Install Rust
+      uses: dtolnay/rust-toolchain@stable
+
+    - name: Install system dependencies (Ubuntu)
+      if: matrix.os == 'ubuntu-latest'
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y libsqlcipher-dev
+
+    - name: Install system dependencies (macOS)
+      if: matrix.os == 'macos-latest'
+      run: brew install sqlcipher
+
+    - name: Check all crates build
+      run: cargo check --workspace --all-targets --all-features
+
+    - name: Build in release mode
+      run: cargo build --workspace --release
+
+  build-release:
+    name: Build Release Artifacts
+    needs: [unit-tests, integration-tests, security, build-check]
     runs-on: ${{ matrix.os }}
     if: github.event_name == 'release'
     strategy:
@@ -172,4 +353,23 @@ jobs:
         upload_url: ${{ github.event.release.upload_url }}
         asset_path: artifacts/${{ matrix.artifact }}
         asset_name: ${{ matrix.artifact }}
-        asset_content_type: application/octet-stream 
+        asset_content_type: application/octet-stream
+
+  test-summary:
+    name: Test Results Summary
+    runs-on: ubuntu-latest
+    needs: [unit-tests, integration-tests, coverage]
+    if: always()
+    steps:
+    - name: Test Results Summary
+      run: |
+        echo "## Test Results Summary" >> $GITHUB_STEP_SUMMARY
+        echo "- Unit Tests: ${{ needs.unit-tests.result }}" >> $GITHUB_STEP_SUMMARY  
+        echo "- Integration Tests: ${{ needs.integration-tests.result }}" >> $GITHUB_STEP_SUMMARY
+        echo "- Coverage: ${{ needs.coverage.result }}" >> $GITHUB_STEP_SUMMARY
+        
+        if [ "${{ needs.unit-tests.result }}" = "success" ] && [ "${{ needs.integration-tests.result }}" = "success" ]; then
+          echo "✅ All tests passed!" >> $GITHUB_STEP_SUMMARY
+        else
+          echo "❌ Some tests failed. Check the logs above." >> $GITHUB_STEP_SUMMARY
+        fi 

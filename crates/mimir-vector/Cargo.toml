@@ -5,22 +5,24 @@ edition.workspace = true
 license.workspace = true
 repository.workspace = true
 authors.workspace = true
-description = "Vector store with HNSW indexing for Mimir AI Memory Vault"
+description = "High-performance vector similarity search for Mimir AI Memory Vault"
 
 [dependencies]
 mimir-core = { path = "../mimir-core" }
-
+tokio.workspace = true
 serde.workspace = true
 serde_json.workspace = true
-thiserror.workspace = true
 anyhow.workspace = true
-tokio.workspace = true
-tracing.workspace = true
-
-# Vector store specific dependencies (using simple implementation for now)
-# hnsw_rs = "0.3"  # Will re-enable with proper ML setup
 ndarray.workspace = true
+uuid.workspace = true
 
 [dev-dependencies]
+mimir-core = { path = "../mimir-core", features = ["test-utils"] }
+tokio-test.workspace = true
+proptest.workspace = true
 criterion.workspace = true
-tokio-test = "0.4" 
+futures = "0.3"
+
+[[bench]]
+name = "vector_operations"
+harness = false 

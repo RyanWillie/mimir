@@ -83,6 +83,9 @@ wiremock = "0.6"
 # System utilities
 num_cpus = "1.0"
 
+# MCP (Model Context Protocol) SDK
+rmcp = { version = "0.2.1", features = ["server"] }
+
 [profile.release]
 opt-level = 3
 lto = true

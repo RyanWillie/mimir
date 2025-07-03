@@ -5,6 +5,7 @@ use std::path::PathBuf;
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct MimirConfig {
     pub server: ServerConfig,
+    pub mcp: McpConfig,
     pub storage: StorageConfig,
     pub security: SecurityConfig,
     pub processing: ProcessingConfig,
@@ -18,6 +19,25 @@ pub struct ServerConfig {
     pub enable_tls: bool,
     pub tls_cert_path: Option<PathBuf>,
     pub tls_key_path: Option<PathBuf>,
+}
+
+/// MCP (Model Context Protocol) configuration
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct McpConfig {
+    pub enabled: bool,
+    pub transport: McpTransport,
+    pub server_name: String,
+    pub server_version: String,
+    pub max_connections: u32,
+}
+
+/// MCP transport type
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub enum McpTransport {
+    /// Standard input/output streams
+    Stdio,
+    /// SSE (Server-Sent Events) transport
+    Sse,
 }
 
 /// Storage configuration
@@ -53,6 +73,13 @@ impl Default for MimirConfig {
                 enable_tls: false,
                 tls_cert_path: None,
                 tls_key_path: None,
+            },
+            mcp: McpConfig {
+                enabled: true,
+                transport: McpTransport::Stdio,
+                server_name: "mimir".to_string(),
+                server_version: env!("CARGO_PKG_VERSION").to_string(),
+                max_connections: 10,
             },
             storage: StorageConfig {
                 vault_path: directories::ProjectDirs::from("", "", "mimir")
@@ -93,6 +120,16 @@ mod tests {
         assert!(config.server.tls_cert_path.is_none());
         assert!(config.server.tls_key_path.is_none());
 
+        // Test MCP defaults
+        assert!(config.mcp.enabled);
+        assert_eq!(config.mcp.server_name, "mimir");
+        assert_eq!(config.mcp.server_version, env!("CARGO_PKG_VERSION"));
+        assert_eq!(config.mcp.max_connections, 10);
+        match config.mcp.transport {
+            McpTransport::Stdio => (),
+            _ => panic!("Expected default transport to be Stdio"),
+        }
+
         // Test storage defaults
         assert_eq!(config.storage.max_memory_age_days, 90);
         assert_eq!(config.storage.compression_threshold_days, 30);
@@ -115,6 +152,94 @@ mod tests {
         assert!(config.processing.worker_threads > 0);
         assert!(config.processing.embedding_model.contains("MiniLM"));
         assert!(config.processing.compression_model.contains("DialoGPT"));
+    }
+
+    #[test]
+    fn test_mcp_config_creation() {
+        let mcp_config = McpConfig {
+            enabled: false,
+            transport: McpTransport::Sse,
+            server_name: "test-server".to_string(),
+            server_version: "1.2.3".to_string(),
+            max_connections: 25,
+        };
+
+        assert!(!mcp_config.enabled);
+        assert_eq!(mcp_config.server_name, "test-server");
+        assert_eq!(mcp_config.server_version, "1.2.3");
+        assert_eq!(mcp_config.max_connections, 25);
+        
+        match mcp_config.transport {
+            McpTransport::Sse => (),
+            _ => panic!("Expected SSE transport"),
+        }
+    }
+
+    #[test]
+    fn test_mcp_transport_variants() {
+        // Test Stdio variant
+        let stdio_transport = McpTransport::Stdio;
+        match stdio_transport {
+            McpTransport::Stdio => (),
+            _ => panic!("Expected Stdio transport"),
+        }
+
+        // Test SSE variant
+        let sse_transport = McpTransport::Sse;
+        match sse_transport {
+            McpTransport::Sse => (),
+            _ => panic!("Expected SSE transport"),
+        }
+    }
+
+    #[test]
+    fn test_mcp_config_serialization() {
+        let mcp_config = McpConfig {
+            enabled: true,
+            transport: McpTransport::Stdio,
+            server_name: "test-mimir".to_string(),
+            server_version: "2.0.0".to_string(),
+            max_connections: 15,
+        };
+
+        // Test serialization
+        let serialized = serde_json::to_string(&mcp_config).unwrap();
+        assert!(serialized.contains("test-mimir"));
+        assert!(serialized.contains("2.0.0"));
+        assert!(serialized.contains("Stdio"));
+        assert!(serialized.contains("15"));
+
+        // Test deserialization
+        let deserialized: McpConfig = serde_json::from_str(&serialized).unwrap();
+        assert_eq!(deserialized.enabled, mcp_config.enabled);
+        assert_eq!(deserialized.server_name, mcp_config.server_name);
+        assert_eq!(deserialized.server_version, mcp_config.server_version);
+        assert_eq!(deserialized.max_connections, mcp_config.max_connections);
+    }
+
+    #[test]
+    fn test_mcp_transport_serialization() {
+        // Test Stdio serialization
+        let stdio = McpTransport::Stdio;
+        let serialized = serde_json::to_string(&stdio).unwrap();
+        assert_eq!(serialized, "\"Stdio\"");
+        
+        let deserialized: McpTransport = serde_json::from_str(&serialized).unwrap();
+        match deserialized {
+            McpTransport::Stdio => (),
+            _ => panic!("Expected Stdio after deserialization"),
+        }
+
+        // Test SSE serialization
+        let sse = McpTransport::Sse;
+        let serialized = serde_json::to_string(&sse).unwrap();
+        assert_eq!(serialized, "\"Sse\"");
+        
+        let deserialized: McpTransport = serde_json::from_str(&serialized).unwrap();
+        match deserialized {
+            McpTransport::Sse => (),
+            _ => panic!("Expected SSE after deserialization"),
+        }
     }
 
     #[test]
@@ -202,6 +327,13 @@ mod tests {
                 enable_tls: true,
                 tls_cert_path: Some(PathBuf::from("/test/cert.pem")),
                 tls_key_path: Some(PathBuf::from("/test/key.pem")),
+            },
+            mcp: McpConfig {
+                enabled: false,
+                transport: McpTransport::Sse,
+                server_name: "test-mimir".to_string(),
+                server_version: "0.1.0".to_string(),
+                max_connections: 5,
             },
             storage: StorageConfig {
                 vault_path: PathBuf::from("/test/vault.db"),

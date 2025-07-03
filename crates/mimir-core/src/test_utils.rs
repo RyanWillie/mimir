@@ -3,7 +3,7 @@
 //! This module provides common testing utilities, fixtures, and helpers
 //! that can be used across all Mimir crates for consistent testing.
 
-use crate::{Memory, MemoryClass, MemoryId, MemoryIngestion, MemoryQuery, AppId};
+use crate::{AppId, Memory, MemoryClass, MemoryId, MemoryIngestion, MemoryQuery};
 use chrono::{DateTime, Utc};
 use uuid::Uuid;
 
@@ -205,10 +205,22 @@ pub mod assertions {
 
     /// Assert that a memory has the expected basic properties
     pub fn assert_memory_valid(memory: &Memory) {
-        assert!(!memory.content.is_empty(), "Memory content should not be empty");
-        assert!(!memory.key_id.is_empty(), "Memory key_id should not be empty");
-        assert!(!memory.app_acl.is_empty(), "Memory should have at least one app in ACL");
-        assert!(memory.created_at <= memory.updated_at, "Created time should be <= updated time");
+        assert!(
+            !memory.content.is_empty(),
+            "Memory content should not be empty"
+        );
+        assert!(
+            !memory.key_id.is_empty(),
+            "Memory key_id should not be empty"
+        );
+        assert!(
+            !memory.app_acl.is_empty(),
+            "Memory should have at least one app in ACL"
+        );
+        assert!(
+            memory.created_at <= memory.updated_at,
+            "Created time should be <= updated time"
+        );
     }
 
     /// Assert that two memories are equivalent for testing purposes
@@ -253,16 +265,14 @@ pub mod generators {
 
     /// Generate test app IDs
     pub fn generate_app_ids(count: usize) -> Vec<AppId> {
-        (0..count)
-            .map(|i| format!("test-app-{}", i))
-            .collect()
+        (0..count).map(|i| format!("test-app-{}", i)).collect()
     }
 }
 
 /// Environment setup utilities for tests
 pub mod env {
-    use tempfile::TempDir;
     use std::path::PathBuf;
+    use tempfile::TempDir;
 
     /// Create a temporary directory for test data
     pub fn create_temp_dir() -> TempDir {
@@ -278,4 +288,4 @@ pub mod env {
     pub fn get_test_vault_path(temp_dir: &TempDir) -> PathBuf {
         temp_dir.path().join("test_vault.db")
     }
-} 
+}

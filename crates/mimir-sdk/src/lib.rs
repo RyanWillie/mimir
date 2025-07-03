@@ -1,6 +1,6 @@
 //! Mimir SDK - Client library for accessing the memory vault
 
-use mimir_core::{Result, MemoryIngestion, MemoryQuery, MemoryResult, AppId};
+use mimir_core::{AppId, MemoryIngestion, MemoryQuery, MemoryResult, Result};
 
 /// Client for interacting with Mimir memory vault
 pub struct MemoryClient {
@@ -16,19 +16,19 @@ impl MemoryClient {
             app_id: app_id.into(),
         }
     }
-    
+
     /// Ingest a new memory
     pub async fn ingest(&self, _memory: MemoryIngestion) -> Result<()> {
         // TODO: Implement HTTP client for MCP protocol
         Ok(())
     }
-    
+
     /// Retrieve memories matching a query
     pub async fn retrieve(&self, _query: MemoryQuery) -> Result<Vec<MemoryResult>> {
         // TODO: Implement memory retrieval
         Ok(vec![])
     }
-    
+
     /// Check if the daemon is healthy
     pub async fn health(&self) -> Result<bool> {
         // TODO: Implement health check
@@ -45,7 +45,7 @@ mod tests {
     #[test]
     fn test_memory_client_creation() {
         let client = MemoryClient::new("http://localhost:8100", "test-app");
-        
+
         assert_eq!(client.base_url, "http://localhost:8100");
         assert_eq!(client.app_id, "test-app");
     }
@@ -53,13 +53,10 @@ mod tests {
     #[test]
     fn test_memory_client_with_different_types() {
         // Test with String types
-        let client1 = MemoryClient::new(
-            "http://example.com".to_string(), 
-            "app1".to_string()
-        );
+        let client1 = MemoryClient::new("http://example.com".to_string(), "app1".to_string());
         assert_eq!(client1.base_url, "http://example.com");
         assert_eq!(client1.app_id, "app1");
-        
+
         // Test with &str types
         let client2 = MemoryClient::new("http://test.local", "app2");
         assert_eq!(client2.base_url, "http://test.local");
@@ -69,12 +66,12 @@ mod tests {
     #[tokio::test]
     async fn test_ingest_stub_implementation() {
         let client = MemoryClient::new("http://localhost:8100", "test-app");
-        
+
         let memory = MemoryIngestionBuilder::new()
             .with_content("Test memory content")
             .with_class(MemoryClass::Personal)
             .build();
-        
+
         // Should succeed with stub implementation
         let result = client.ingest(memory).await;
         assert!(result.is_ok());
@@ -83,16 +80,16 @@ mod tests {
     #[tokio::test]
     async fn test_retrieve_stub_implementation() {
         let client = MemoryClient::new("http://localhost:8100", "test-app");
-        
+
         let query = MemoryQueryBuilder::new()
             .with_query("search term")
             .with_top_k(5)
             .build();
-        
+
         // Should succeed with stub implementation
         let result = client.retrieve(query).await;
         assert!(result.is_ok());
-        
+
         let memories = result.unwrap();
         assert_eq!(memories.len(), 0); // Stub returns empty vec
     }
@@ -100,7 +97,7 @@ mod tests {
     #[tokio::test]
     async fn test_health_check_stub() {
         let client = MemoryClient::new("http://localhost:8100", "test-app");
-        
+
         let result = client.health().await;
         assert!(result.is_ok());
         assert_eq!(result.unwrap(), true);
@@ -109,23 +106,23 @@ mod tests {
     #[tokio::test]
     async fn test_client_with_various_inputs() {
         let client = MemoryClient::new("http://localhost:8100", "test-app");
-        
+
         // Test different memory types
         let personal_memory = MemoryIngestionBuilder::new()
             .with_class(MemoryClass::Personal)
             .with_content("Personal note")
             .build();
-        
+
         let work_memory = MemoryIngestionBuilder::new()
             .with_class(MemoryClass::Work)
             .with_content("Work task")
             .build();
-        
+
         let health_memory = MemoryIngestionBuilder::new()
             .with_class(MemoryClass::Health)
             .with_content("Health reminder")
             .build();
-        
+
         // All should work with stub implementation
         assert!(client.ingest(personal_memory).await.is_ok());
         assert!(client.ingest(work_memory).await.is_ok());
@@ -135,23 +132,23 @@ mod tests {
     #[tokio::test]
     async fn test_query_variations() {
         let client = MemoryClient::new("http://localhost:8100", "test-app");
-        
+
         // Test different query configurations
         let simple_query = MemoryQueryBuilder::new()
             .with_query("simple search")
             .build();
-        
+
         let filtered_query = MemoryQueryBuilder::new()
             .with_query("filtered search")
             .with_class_filter(vec![MemoryClass::Personal, MemoryClass::Work])
             .with_top_k(10)
             .build();
-        
+
         let large_query = MemoryQueryBuilder::new()
             .with_query("large result set")
             .with_top_k(100)
             .build();
-        
+
         // All should work with stub implementation
         assert!(client.retrieve(simple_query).await.is_ok());
         assert!(client.retrieve(filtered_query).await.is_ok());
@@ -167,7 +164,7 @@ mod tests {
             ("http://127.0.0.1:9090", "ip-address"),
             ("https://memory-vault.internal:8443", "internal-dns"),
         ];
-        
+
         for (url, app_id) in test_cases {
             let client = MemoryClient::new(url, app_id);
             assert_eq!(client.base_url, url);
@@ -178,22 +175,22 @@ mod tests {
     #[tokio::test]
     async fn test_concurrent_operations() {
         let client = MemoryClient::new("http://localhost:8100", "test-app");
-        
+
         let memory = MemoryIngestionBuilder::new()
             .with_content("Concurrent test")
             .build();
-        
+
         let query = MemoryQueryBuilder::new()
             .with_query("concurrent search")
             .build();
-        
+
         // Test concurrent operations (with stubs, all should succeed)
         let (ingest_result, retrieve_result, health_result) = tokio::join!(
             client.ingest(memory),
             client.retrieve(query),
             client.health()
         );
-        
+
         assert!(ingest_result.is_ok());
         assert!(retrieve_result.is_ok());
         assert!(health_result.is_ok());
@@ -206,14 +203,10 @@ mod tests {
         let client1 = MemoryClient::new("http://server1:8100", "app1");
         let client2 = MemoryClient::new("http://server2:8100", "app2");
         let client3 = MemoryClient::new("http://server3:8100", "app3");
-        
+
         // All clients should work independently
-        let health_futures = vec![
-            client1.health(),
-            client2.health(),
-            client3.health(),
-        ];
-        
+        let health_futures = vec![client1.health(), client2.health(), client3.health()];
+
         for health_future in health_futures {
             let result = health_future.await;
             assert!(result.is_ok());
@@ -227,11 +220,11 @@ mod tests {
     async fn test_http_error_handling() {
         // This test will be enabled when we implement actual HTTP client
         let client = MemoryClient::new("http://nonexistent:8100", "test-app");
-        
+
         let memory = MemoryIngestionBuilder::new()
             .with_content("Test content")
             .build();
-        
+
         // Should fail with connection error when HTTP client is implemented
         let result = client.ingest(memory).await;
         // assert!(result.is_err());
@@ -262,4 +255,4 @@ mod tests {
 
     // Property-based testing could be added here with proptest
     // to test various edge cases in URLs, app IDs, and content
-} 
+}

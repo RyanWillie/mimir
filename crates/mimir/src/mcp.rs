@@ -12,10 +12,10 @@ impl McpServer {
     pub fn new() -> Self {
         Self {}
     }
-    
+
     /// Start the MCP server
     pub async fn start(&self) -> Result<()> {
         // TODO: Implement MCP JSON-RPC server
         Ok(())
     }
-} 
+}

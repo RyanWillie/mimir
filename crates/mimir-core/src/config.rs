@@ -85,24 +85,32 @@ mod tests {
     #[test]
     fn test_default_config_values() {
         let config = MimirConfig::default();
-        
+
         // Test server defaults
         assert_eq!(config.server.host, "127.0.0.1");
         assert_eq!(config.server.port, 8100);
         assert!(!config.server.enable_tls);
         assert!(config.server.tls_cert_path.is_none());
         assert!(config.server.tls_key_path.is_none());
-        
+
         // Test storage defaults
         assert_eq!(config.storage.max_memory_age_days, 90);
         assert_eq!(config.storage.compression_threshold_days, 30);
-        assert!(config.storage.vault_path.to_string_lossy().contains("vault.db"));
-        
+        assert!(config
+            .storage
+            .vault_path
+            .to_string_lossy()
+            .contains("vault.db"));
+
         // Test security defaults
         assert!(config.security.enable_pii_detection);
         assert!(config.security.strict_access_control);
-        assert!(config.security.master_key_path.to_string_lossy().contains("master.key"));
-        
+        assert!(config
+            .security
+            .master_key_path
+            .to_string_lossy()
+            .contains("master.key"));
+
         // Test processing defaults
         assert!(config.processing.worker_threads > 0);
         assert!(config.processing.embedding_model.contains("MiniLM"));
@@ -112,12 +120,12 @@ mod tests {
     #[test]
     fn test_config_serialization() {
         let config = MimirConfig::default();
-        
+
         let serialized = serde_json::to_string(&config).unwrap();
         assert!(!serialized.is_empty());
         assert!(serialized.contains("127.0.0.1"));
         assert!(serialized.contains("8100"));
-        
+
         let deserialized: MimirConfig = serde_json::from_str(&serialized).unwrap();
         assert_eq!(config.server.host, deserialized.server.host);
         assert_eq!(config.server.port, deserialized.server.port);
@@ -132,7 +140,7 @@ mod tests {
             tls_cert_path: Some(PathBuf::from("/path/to/cert.pem")),
             tls_key_path: Some(PathBuf::from("/path/to/key.pem")),
         };
-        
+
         assert_eq!(server_config.host, "0.0.0.0");
         assert_eq!(server_config.port, 9090);
         assert!(server_config.enable_tls);
@@ -144,13 +152,13 @@ mod tests {
     fn test_storage_config_paths() {
         let temp_dir = TempDir::new().unwrap();
         let vault_path = temp_dir.path().join("custom_vault.db");
-        
+
         let storage_config = StorageConfig {
             vault_path: vault_path.clone(),
             max_memory_age_days: 30,
             compression_threshold_days: 7,
         };
-        
+
         assert_eq!(storage_config.vault_path, vault_path);
         assert_eq!(storage_config.max_memory_age_days, 30);
         assert_eq!(storage_config.compression_threshold_days, 7);
@@ -160,13 +168,13 @@ mod tests {
     fn test_security_config_settings() {
         let temp_dir = TempDir::new().unwrap();
         let key_path = temp_dir.path().join("custom.key");
-        
+
         let security_config = SecurityConfig {
             master_key_path: key_path.clone(),
             enable_pii_detection: false,
             strict_access_control: false,
         };
-        
+
         assert_eq!(security_config.master_key_path, key_path);
         assert!(!security_config.enable_pii_detection);
         assert!(!security_config.strict_access_control);
@@ -179,7 +187,7 @@ mod tests {
             embedding_model: "custom/model".to_string(),
             compression_model: "custom/compression".to_string(),
         };
-        
+
         assert_eq!(processing_config.worker_threads, 4);
         assert_eq!(processing_config.embedding_model, "custom/model");
         assert_eq!(processing_config.compression_model, "custom/compression");
@@ -211,23 +219,35 @@ mod tests {
                 compression_model: "test/compression".to_string(),
             },
         };
-        
+
         let serialized = serde_json::to_string(&original_config).unwrap();
         let deserialized: MimirConfig = serde_json::from_str(&serialized).unwrap();
-        
+
         assert_eq!(original_config.server.host, deserialized.server.host);
         assert_eq!(original_config.server.port, deserialized.server.port);
-        assert_eq!(original_config.server.enable_tls, deserialized.server.enable_tls);
-        assert_eq!(original_config.storage.vault_path, deserialized.storage.vault_path);
-        assert_eq!(original_config.security.enable_pii_detection, deserialized.security.enable_pii_detection);
-        assert_eq!(original_config.processing.worker_threads, deserialized.processing.worker_threads);
+        assert_eq!(
+            original_config.server.enable_tls,
+            deserialized.server.enable_tls
+        );
+        assert_eq!(
+            original_config.storage.vault_path,
+            deserialized.storage.vault_path
+        );
+        assert_eq!(
+            original_config.security.enable_pii_detection,
+            deserialized.security.enable_pii_detection
+        );
+        assert_eq!(
+            original_config.processing.worker_threads,
+            deserialized.processing.worker_threads
+        );
     }
 
     #[test]
     fn test_worker_threads_positive() {
         let config = MimirConfig::default();
         assert!(config.processing.worker_threads > 0);
-        
+
         // Test that default uses system CPU count
         let system_cpus = num_cpus::get();
         assert_eq!(config.processing.worker_threads, system_cpus);
@@ -244,10 +264,12 @@ mod tests {
     #[test]
     fn test_age_thresholds_logical() {
         let config = MimirConfig::default();
-        
+
         // Compression threshold should be less than max age
-        assert!(config.storage.compression_threshold_days < config.storage.max_memory_age_days as u32);
-        
+        assert!(
+            config.storage.compression_threshold_days < config.storage.max_memory_age_days as u32
+        );
+
         // Both should be positive
         assert!(config.storage.max_memory_age_days > 0);
         assert!(config.storage.compression_threshold_days > 0);
@@ -256,12 +278,12 @@ mod tests {
     #[test]
     fn test_model_names_not_empty() {
         let config = MimirConfig::default();
-        
+
         assert!(!config.processing.embedding_model.is_empty());
         assert!(!config.processing.compression_model.is_empty());
-        
+
         // Should contain model identifiers
         assert!(config.processing.embedding_model.contains('/'));
         assert!(config.processing.compression_model.contains('/'));
     }
-} 
+}

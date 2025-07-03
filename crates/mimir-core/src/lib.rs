@@ -3,12 +3,12 @@
 //! This crate provides shared types, error handling, and utilities used across
 //! all Mimir components.
 
-pub mod types;
-pub mod error;
 pub mod config;
+pub mod error;
+pub mod types;
 
 #[cfg(any(test, feature = "test-utils"))]
 pub mod test_utils;
 
 pub use error::{MimirError, Result};
-pub use types::*; 
+pub use types::*;

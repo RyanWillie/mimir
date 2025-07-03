@@ -1,5 +1,5 @@
-use wasm_bindgen::prelude::*;
 use mimir_sdk::MemoryClient;
+use wasm_bindgen::prelude::*;
 
 #[wasm_bindgen]
 pub struct WasmMemoryClient {
@@ -14,22 +14,22 @@ impl WasmMemoryClient {
             client: MemoryClient::new(base_url, app_id),
         }
     }
-    
+
     #[wasm_bindgen]
     pub async fn ingest(&self, _content: String) -> Result<(), JsValue> {
         // TODO: Implement async call and error handling
         Ok(())
     }
-    
+
     #[wasm_bindgen]
     pub async fn retrieve(&self, _query: String, _top_k: usize) -> Result<JsValue, JsValue> {
         // TODO: Implement async call and serialization
         Ok(JsValue::NULL)
     }
-    
+
     #[wasm_bindgen]
     pub async fn health(&self) -> Result<bool, JsValue> {
         // TODO: Implement health check
         Ok(true)
     }
-} 
+}

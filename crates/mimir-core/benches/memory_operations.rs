@@ -1,8 +1,8 @@
-use criterion::{black_box, criterion_group, criterion_main, Criterion, BenchmarkId};
-use mimir_core::{Memory, MemoryClass};
 use chrono::{DateTime, Utc};
-use uuid::Uuid;
+use criterion::{black_box, criterion_group, criterion_main, BenchmarkId, Criterion};
+use mimir_core::{Memory, MemoryClass};
 use serde_json;
+use uuid::Uuid;
 
 fn create_test_memory(content_size: usize) -> Memory {
     let content = "a".repeat(content_size);
@@ -22,9 +22,9 @@ fn create_test_memory(content_size: usize) -> Memory {
 
 fn bench_memory_creation(c: &mut Criterion) {
     let mut group = c.benchmark_group("memory_creation");
-    
+
     let sizes = vec![100, 1000, 10000, 100000];
-    
+
     for size in sizes {
         group.bench_with_input(
             BenchmarkId::new("create_memory", size),
@@ -48,18 +48,18 @@ fn bench_memory_creation(c: &mut Criterion) {
             },
         );
     }
-    
+
     group.finish();
 }
 
 fn bench_memory_serialization(c: &mut Criterion) {
     let mut group = c.benchmark_group("memory_serialization");
-    
+
     let sizes = vec![100, 1000, 10000, 100000];
-    
+
     for size in sizes {
         let memory = create_test_memory(size);
-        
+
         group.bench_with_input(
             BenchmarkId::new("serialize_json", size),
             &memory,
@@ -70,7 +70,7 @@ fn bench_memory_serialization(c: &mut Criterion) {
                 })
             },
         );
-        
+
         let json = serde_json::to_string(&memory).unwrap();
         group.bench_with_input(
             BenchmarkId::new("deserialize_json", size),
@@ -83,18 +83,18 @@ fn bench_memory_serialization(c: &mut Criterion) {
             },
         );
     }
-    
+
     group.finish();
 }
 
 fn bench_memory_cloning(c: &mut Criterion) {
     let mut group = c.benchmark_group("memory_cloning");
-    
+
     let sizes = vec![100, 1000, 10000, 100000];
-    
+
     for size in sizes {
         let memory = create_test_memory(size);
-        
+
         group.bench_with_input(
             BenchmarkId::new("clone_memory", size),
             &memory,
@@ -106,13 +106,13 @@ fn bench_memory_cloning(c: &mut Criterion) {
             },
         );
     }
-    
+
     group.finish();
 }
 
 fn bench_memory_class_operations(c: &mut Criterion) {
     let mut group = c.benchmark_group("memory_class_operations");
-    
+
     let classes = vec![
         MemoryClass::Personal,
         MemoryClass::Work,
@@ -120,7 +120,7 @@ fn bench_memory_class_operations(c: &mut Criterion) {
         MemoryClass::Financial,
         MemoryClass::Other("custom_class".to_string()),
     ];
-    
+
     group.bench_function("create_memory_classes", |b| {
         b.iter(|| {
             for class in &classes {
@@ -139,7 +139,7 @@ fn bench_memory_class_operations(c: &mut Criterion) {
             }
         })
     });
-    
+
     group.bench_function("serialize_memory_classes", |b| {
         b.iter(|| {
             for class in &classes {
@@ -159,20 +159,20 @@ fn bench_memory_class_operations(c: &mut Criterion) {
             }
         })
     });
-    
+
     group.finish();
 }
 
 fn bench_uuid_generation(c: &mut Criterion) {
     let mut group = c.benchmark_group("uuid_generation");
-    
+
     group.bench_function("uuid_v4_generation", |b| {
         b.iter(|| {
             let id = black_box(Uuid::new_v4());
             black_box(id)
         })
     });
-    
+
     group.bench_function("uuid_to_string", |b| {
         let id = Uuid::new_v4();
         b.iter(|| {
@@ -180,7 +180,7 @@ fn bench_uuid_generation(c: &mut Criterion) {
             black_box(id_str)
         })
     });
-    
+
     group.bench_function("uuid_from_string", |b| {
         let id_str = Uuid::new_v4().to_string();
         b.iter(|| {
@@ -188,18 +188,18 @@ fn bench_uuid_generation(c: &mut Criterion) {
             black_box(id)
         })
     });
-    
+
     group.finish();
 }
 
 fn bench_memory_collections(c: &mut Criterion) {
     let mut group = c.benchmark_group("memory_collections");
-    
+
     let sizes = vec![10, 100, 1000, 10000];
-    
+
     for size in sizes {
         let memories: Vec<Memory> = (0..size).map(|_| create_test_memory(1000)).collect();
-        
+
         group.bench_with_input(
             BenchmarkId::new("serialize_memory_vec", size),
             &memories,
@@ -210,7 +210,7 @@ fn bench_memory_collections(c: &mut Criterion) {
                 })
             },
         );
-        
+
         let json = serde_json::to_string(&memories).unwrap();
         group.bench_with_input(
             BenchmarkId::new("deserialize_memory_vec", size),
@@ -222,7 +222,7 @@ fn bench_memory_collections(c: &mut Criterion) {
                 })
             },
         );
-        
+
         group.bench_with_input(
             BenchmarkId::new("filter_by_class", size),
             &memories,
@@ -232,43 +232,39 @@ fn bench_memory_collections(c: &mut Criterion) {
                         memories
                             .iter()
                             .filter(|m| m.class == MemoryClass::Personal)
-                            .collect()
+                            .collect(),
                     );
                     black_box(filtered)
                 })
             },
         );
-        
+
         group.bench_with_input(
             BenchmarkId::new("find_by_id", size),
             &memories,
             |b, memories| {
                 let target_id = memories[size / 2].id;
                 b.iter(|| {
-                    let found = black_box(
-                        memories
-                            .iter()
-                            .find(|m| m.id == target_id)
-                    );
+                    let found = black_box(memories.iter().find(|m| m.id == target_id));
                     black_box(found)
                 })
             },
         );
     }
-    
+
     group.finish();
 }
 
 fn bench_date_operations(c: &mut Criterion) {
     let mut group = c.benchmark_group("date_operations");
-    
+
     group.bench_function("utc_now", |b| {
         b.iter(|| {
             let now = black_box(Utc::now());
             black_box(now)
         })
     });
-    
+
     group.bench_function("date_to_rfc3339", |b| {
         let now = Utc::now();
         b.iter(|| {
@@ -276,7 +272,7 @@ fn bench_date_operations(c: &mut Criterion) {
             black_box(date_str)
         })
     });
-    
+
     group.bench_function("date_from_rfc3339", |b| {
         let date_str = Utc::now().to_rfc3339();
         b.iter(|| {
@@ -284,18 +280,18 @@ fn bench_date_operations(c: &mut Criterion) {
             black_box(date)
         })
     });
-    
+
     group.finish();
 }
 
 fn bench_string_operations(c: &mut Criterion) {
     let mut group = c.benchmark_group("string_operations");
-    
+
     let sizes = vec![100, 1000, 10000, 100000];
-    
+
     for size in sizes {
         let content = "a".repeat(size);
-        
+
         group.bench_with_input(
             BenchmarkId::new("string_clone", size),
             &content,
@@ -306,7 +302,7 @@ fn bench_string_operations(c: &mut Criterion) {
                 })
             },
         );
-        
+
         group.bench_with_input(
             BenchmarkId::new("string_len", size),
             &content,
@@ -317,7 +313,7 @@ fn bench_string_operations(c: &mut Criterion) {
                 })
             },
         );
-        
+
         group.bench_with_input(
             BenchmarkId::new("string_contains", size),
             &content,
@@ -329,7 +325,7 @@ fn bench_string_operations(c: &mut Criterion) {
             },
         );
     }
-    
+
     group.finish();
 }
 
@@ -345,4 +341,4 @@ criterion_group!(
     bench_string_operations
 );
 
-criterion_main!(benches); 
+criterion_main!(benches);

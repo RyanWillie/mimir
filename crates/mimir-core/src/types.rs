@@ -1,6 +1,6 @@
+use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
-use chrono::{DateTime, Utc};
 
 /// Unique identifier for a memory
 pub type MemoryId = Uuid;
@@ -73,9 +73,9 @@ pub struct AuthToken {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::test_utils::{MemoryBuilder, MemoryIngestionBuilder, MemoryQueryBuilder};
     use crate::test_utils::assertions::*;
     use crate::test_utils::generators::*;
+    use crate::test_utils::{MemoryBuilder, MemoryIngestionBuilder, MemoryQueryBuilder};
     use proptest::prelude::*;
 
     #[test]
@@ -84,11 +84,11 @@ mod tests {
         let personal = MemoryClass::Personal;
         let serialized = serde_json::to_string(&personal).unwrap();
         assert_eq!(serialized, "\"personal\"");
-        
+
         let work = MemoryClass::Work;
         let serialized = serde_json::to_string(&work).unwrap();
         assert_eq!(serialized, "\"work\"");
-        
+
         // Test custom class
         let custom = MemoryClass::Other("custom".to_string());
         let serialized = serde_json::to_string(&custom).unwrap();
@@ -99,13 +99,13 @@ mod tests {
     fn test_memory_class_deserialization() {
         let personal: MemoryClass = serde_json::from_str("\"personal\"").unwrap();
         assert_eq!(personal, MemoryClass::Personal);
-        
+
         let work: MemoryClass = serde_json::from_str("\"work\"").unwrap();
         assert_eq!(work, MemoryClass::Work);
-        
+
         let health: MemoryClass = serde_json::from_str("\"health\"").unwrap();
         assert_eq!(health, MemoryClass::Health);
-        
+
         let financial: MemoryClass = serde_json::from_str("\"financial\"").unwrap();
         assert_eq!(financial, MemoryClass::Financial);
     }
@@ -146,7 +146,10 @@ mod tests {
             .build();
 
         assert_eq!(query.query, "search term");
-        assert_eq!(query.class_filter, Some(vec![MemoryClass::Personal, MemoryClass::Work]));
+        assert_eq!(
+            query.class_filter,
+            Some(vec![MemoryClass::Personal, MemoryClass::Work])
+        );
         assert_eq!(query.top_k, 5);
     }
 
@@ -183,15 +186,13 @@ mod tests {
     fn test_generate_test_memories() {
         let memories = generate_test_memories(5);
         assert_eq!(memories.len(), 5);
-        
+
         for memory in &memories {
             assert_memory_valid(memory);
         }
-        
+
         // Check that we have variety in classes
-        let classes: std::collections::HashSet<_> = memories.iter()
-            .map(|m| &m.class)
-            .collect();
+        let classes: std::collections::HashSet<_> = memories.iter().map(|m| &m.class).collect();
         assert!(classes.len() > 1);
     }
 
@@ -199,7 +200,7 @@ mod tests {
     fn test_generate_test_embedding() {
         let embedding = generate_test_embedding(128);
         assert_eq!(embedding.len(), 128);
-        
+
         // Check that values are normalized between 0 and 1
         for &value in &embedding {
             assert!(value >= 0.0 && value <= 1.0);
@@ -213,7 +214,7 @@ mod tests {
             let memory = MemoryBuilder::new()
                 .with_content(content.clone())
                 .build();
-            
+
             assert_eq!(memory.content, content);
             assert!(!memory.content.is_empty());
         }
@@ -222,7 +223,7 @@ mod tests {
         fn test_memory_id_uniqueness(content1 in ".+", content2 in ".+") {
             let memory1 = MemoryBuilder::new().with_content(content1).build();
             let memory2 = MemoryBuilder::new().with_content(content2).build();
-            
+
             // UUIDs should be unique (extremely high probability)
             assert_ne!(memory1.id, memory2.id);
         }
@@ -232,7 +233,7 @@ mod tests {
             let query = MemoryQueryBuilder::new()
                 .with_top_k(k)
                 .build();
-            
+
             assert_eq!(query.top_k, k);
             assert!(query.top_k > 0);
         }
@@ -243,4 +244,4 @@ mod tests {
             assert_eq!(embedding.len(), dims);
         }
     }
-} 
+}

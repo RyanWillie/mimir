@@ -1,5 +1,5 @@
-use pyo3::prelude::*;
 use mimir_sdk::MemoryClient;
+use pyo3::prelude::*;
 
 /// Python wrapper for MemoryClient
 #[pyclass]
@@ -15,12 +15,12 @@ impl PyMemoryClient {
             client: MemoryClient::new(base_url, app_id),
         }
     }
-    
+
     fn ingest(&self, content: String) -> PyResult<()> {
         // TODO: Implement async wrapper
         Ok(())
     }
-    
+
     fn retrieve(&self, query: String, top_k: usize) -> PyResult<Vec<String>> {
         // TODO: Implement async wrapper and serialization
         Ok(vec![])
@@ -32,4 +32,4 @@ impl PyMemoryClient {
 fn safe_memory(_py: Python, m: &PyModule) -> PyResult<()> {
     m.add_class::<PyMemoryClient>()?;
     Ok(())
-} 
+}

@@ -51,9 +51,9 @@ enum BurnTarget {
 #[tokio::main]
 async fn main() -> Result<()> {
     tracing_subscriber::fmt().init();
-    
+
     let cli = Cli::parse();
-    
+
     match cli.command {
         Commands::Init { path } => {
             let vault_path = path.unwrap_or_else(|| "./vault".to_string());
@@ -82,6 +82,6 @@ async fn main() -> Result<()> {
             println!("🔥 Memories burned: {:?}", class);
         }
     }
-    
+
     Ok(())
-} 
+}

@@ -1,18 +1,18 @@
-//! Mimir Safe Memory Daemon
+//! Mimir - Local-First AI Memory Vault
 //!
 //! Main daemon process that provides the MCP server for AI memory management
 
 use clap::Parser;
 use std::path::PathBuf;
 use tracing::{info, error};
-use mimir_core::{MimirConfig, Result};
+use mimir_core::{config::MimirConfig, Result};
 
 mod server;
 mod mcp;
 
-/// Safe Memory Daemon - Local-First AI Memory Vault
+/// Mimir - Local-First AI Memory Vault
 #[derive(Parser)]
-#[command(name = "safe-memoryd")]
+#[command(name = "mimir")]
 #[command(about = "A local-first, zero-knowledge AI memory vault")]
 struct Cli {
     /// Configuration file path
@@ -35,10 +35,10 @@ async fn main() -> Result<()> {
     // Initialize logging
     let log_level = if cli.debug { "debug" } else { "info" };
     tracing_subscriber::fmt()
-        .with_env_filter(format!("safe_memoryd={},mimir_core={}", log_level, log_level))
+        .with_env_filter(format!("mimir={},mimir_core={}", log_level, log_level))
         .init();
     
-    info!("Starting Mimir Safe Memory Daemon v{}", env!("CARGO_PKG_VERSION"));
+    info!("Starting Mimir v{}", env!("CARGO_PKG_VERSION"));
     
     // Load configuration
     let mut config = MimirConfig::default();

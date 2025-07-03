@@ -23,7 +23,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         Ok(false) => println!("⚠️ Daemon is not healthy"),
         Err(e) => {
             println!("❌ Failed to connect to daemon: {}", e);
-            println!("💡 Make sure to start the daemon first: safe-memoryd start");
+            println!("💡 Make sure to start the daemon first: mimir start");
             return Ok(());
         }
     }

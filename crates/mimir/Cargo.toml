@@ -1,5 +1,5 @@
 [package]
-name = "safe-memoryd"
+name = "mimir"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
@@ -8,7 +8,7 @@ authors.workspace = true
 description = "Main daemon process for Mimir AI Memory Vault with MCP server"
 
 [[bin]]
-name = "safe-memoryd"
+name = "mimir"
 path = "src/main.rs"
 
 [dependencies]

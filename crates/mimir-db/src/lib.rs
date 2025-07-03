@@ -1,33 +1,33 @@
-//! Mimir Database - Encrypted SQLite storage for memories and metadata
+//! Mimir Database - Encrypted storage for memory entries
 
-use mimir_core::{Result, Memory, MemoryClass, MemoryId};
+use mimir_core::{Memory, MemoryClass, MemoryId, Result};
 
-/// Encrypted database for storing memory metadata and content
-pub struct MemoryDatabase {
-    // TODO: Add SQLCipher connection
+/// Encrypted database for storing memories
+pub struct Database {
+    // TODO: Implement SQLCipher connection
 }
 
-impl MemoryDatabase {
-    /// Create a new database connection
-    pub fn new(path: &str, master_key: &[u8]) -> Result<Self> {
-        // TODO: Initialize SQLCipher connection
+impl Database {
+    /// Create a new encrypted database
+    pub fn new(_path: &str, _master_key: &[u8]) -> Result<Self> {
+        // TODO: Initialize encrypted SQLite database
         Ok(Self {})
     }
     
     /// Store a memory in the database
-    pub async fn store_memory(&self, memory: &Memory) -> Result<()> {
+    pub async fn store_memory(&self, _memory: &Memory) -> Result<()> {
         // TODO: Implement encrypted storage
         Ok(())
     }
     
-    /// Retrieve memories by class
-    pub async fn get_memories_by_class(&self, class: &MemoryClass) -> Result<Vec<Memory>> {
-        // TODO: Implement retrieval with access control
+    /// Get memories by classification
+    pub async fn get_memories_by_class(&self, _class: &MemoryClass) -> Result<Vec<Memory>> {
+        // TODO: Implement query with classification filter
         Ok(vec![])
     }
     
-    /// Delete memory by ID
-    pub async fn delete_memory(&self, id: MemoryId) -> Result<()> {
+    /// Delete a memory by ID
+    pub async fn delete_memory(&self, _id: MemoryId) -> Result<()> {
         // TODO: Implement secure deletion
         Ok(())
     }

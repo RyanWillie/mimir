@@ -10,7 +10,7 @@ mimir/
 ├── Cargo.toml                 # Workspace configuration with all crates
 ├── crates/                    # Core Rust components
 │   ├── mimir-core/           # ✅ Shared types and utilities
-│   ├── safe-memoryd/         # ✅ Main daemon with MCP server
+│   ├── mimir/                # ✅ Main daemon with MCP server
 │   ├── mimir-vector/         # ✅ Vector store (HNSW indexing)
 │   ├── mimir-db/             # ✅ Encrypted SQLite database
 │   ├── mimir-guardrails/     # ✅ PII detection & classification
@@ -55,7 +55,7 @@ mimir/
 - Configuration management with `MimirConfig`
 - Authentication and authorization types
 
-**Main Daemon (`safe-memoryd`):**
+**Main Daemon (`mimir`):**
 - Command-line interface with clap
 - Modular server and MCP protocol structure
 - Configuration loading and logging setup
@@ -136,7 +136,7 @@ cargo check --workspace
 
 # Individual crate compilation
 cargo check -p mimir-core
-cargo check -p safe-memoryd
+cargo check -p mimir
 cargo check -p mimir-cli
 
 # Run tests

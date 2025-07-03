@@ -39,7 +39,7 @@ enum Commands {
     },
 }
 
-#[derive(clap::ValueEnum, Clone)]
+#[derive(clap::ValueEnum, Clone, Debug)]
 enum BurnTarget {
     Personal,
     Work,
@@ -67,14 +67,14 @@ async fn main() -> Result<()> {
             println!("🔍 Vault status: Ready");
         }
         Commands::Start { daemon } => {
-            info!("Starting daemon (daemon={})", daemon);
+            info!("Starting Mimir daemon (daemon={})", daemon);
             // TODO: Implement daemon start
-            println!("🚀 Daemon started");
+            println!("🚀 Mimir daemon started");
         }
         Commands::Stop => {
-            info!("Stopping daemon");
+            info!("Stopping Mimir daemon");
             // TODO: Implement daemon stop
-            println!("🛑 Daemon stopped");
+            println!("🛑 Mimir daemon stopped");
         }
         Commands::Burn { class } => {
             info!("Burning memories: {:?}", class);

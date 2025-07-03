@@ -24,6 +24,9 @@ pub enum MimirError {
     #[error("Configuration error: {0}")]
     Config(String),
     
+    #[error("Server error: {0}")]
+    ServerError(String),
+    
     #[error("IO error: {0}")]
     Io(#[from] std::io::Error),
     

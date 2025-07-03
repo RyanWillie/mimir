@@ -12,7 +12,7 @@ Mimir is a **local-first, zero-knowledge AI memory vault** that provides privacy
 mimir/
 ├── crates/                    # Core Rust components (Apache-2.0)
 │   ├── mimir-core/           # Shared types, errors, config
-│   ├── safe-memoryd/         # Main daemon + MCP server  
+│   ├── mimir/                # Main daemon + MCP server  
 │   ├── mimir-vector/         # Vector store (HNSW)
 │   ├── mimir-db/             # Encrypted SQLite database
 │   ├── mimir-guardrails/     # PII detection & classification
@@ -204,7 +204,7 @@ mod tests {
    }
    ```
 
-### **Adding New API Endpoints** (for safe-memoryd)
+### **Adding New API Endpoints** (for mimir daemon)
 
 1. **Define in server.rs**:
    ```rust
@@ -405,7 +405,7 @@ pub use engine::Engine;
 - **Principle**: Stable API, minimal dependencies
 - **Changes**: Require careful consideration of impact on all other crates
 
-### **safe-memoryd**
+### **mimir**
 - **Role**: Main daemon process with MCP server
 - **Key Files**: `main.rs`, `server.rs`, `mcp.rs`
 - **Principle**: Robust, secure, performant

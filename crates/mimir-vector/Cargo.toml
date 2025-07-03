@@ -14,14 +14,12 @@ serde.workspace = true
 serde_json.workspace = true
 thiserror.workspace = true
 anyhow.workspace = true
-candle-core.workspace = true
-candle-transformers.workspace = true
 tokio.workspace = true
 tracing.workspace = true
 
-# Vector store specific dependencies
-hnsw_rs = "0.3"
-ndarray = "0.15"
+# Vector store specific dependencies (using simple implementation for now)
+# hnsw_rs = "0.3"  # Will re-enable with proper ML setup
+ndarray.workspace = true
 
 [dev-dependencies]
 criterion.workspace = true

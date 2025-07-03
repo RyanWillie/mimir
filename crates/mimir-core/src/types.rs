@@ -1,7 +1,6 @@
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 use chrono::{DateTime, Utc};
-use std::collections::HashMap;
 
 /// Unique identifier for a memory
 pub type MemoryId = Uuid;

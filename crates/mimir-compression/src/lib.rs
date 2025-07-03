@@ -1,31 +1,29 @@
-//! Mimir Compression - Memory summarization and aging
+//! Mimir Compression - Smart memory compression and summarization
 
-use mimir_core::{Result, Memory};
+use mimir_core::{Memory, Result};
 
 /// Memory compression engine
 pub struct CompressionEngine {
-    // TODO: Add LLM for summarization
+    // TODO: Add model configuration
 }
 
 impl CompressionEngine {
     /// Create a new compression engine
-    pub fn new() -> Result<Self> {
-        Ok(Self {})
+    pub fn new() -> Self {
+        Self {}
     }
     
-    /// Compress old memories into summaries
+    /// Compress a collection of related memories
     pub async fn compress_memories(&self, memories: Vec<Memory>) -> Result<Memory> {
-        // TODO: Implement LLM-based summarization
-        // TODO: Ensure summary is ≤ 80 tokens
-        
-        // Return first memory as placeholder
+        // TODO: Implement AI-powered compression
+        // For now, just return the first memory as a placeholder
         memories.into_iter().next()
             .ok_or_else(|| mimir_core::MimirError::Compression("No memories to compress".to_string()))
     }
     
-    /// Check if memories should be compressed based on age
-    pub fn should_compress(&self, memories: &[Memory], threshold_days: u32) -> bool {
-        // TODO: Implement age-based compression logic
+    /// Check if memories should be compressed based on age and importance
+    pub fn should_compress(&self, _memories: &[Memory], _threshold_days: u32) -> bool {
+        // TODO: Implement compression heuristics
         false
     }
 } 

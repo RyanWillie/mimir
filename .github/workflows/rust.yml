@@ -118,16 +118,16 @@ jobs:
         include:
           - os: ubuntu-latest
             target: x86_64-unknown-linux-gnu
-            artifact: safe-memoryd-linux-x64
+            artifact: mimir-linux-x64
           - os: windows-latest
             target: x86_64-pc-windows-msvc
-            artifact: safe-memoryd-windows-x64.exe
+            artifact: mimir-windows-x64.exe
           - os: macos-latest
             target: x86_64-apple-darwin
-            artifact: safe-memoryd-macos-x64
+            artifact: mimir-macos-x64
           - os: macos-latest
             target: aarch64-apple-darwin
-            artifact: safe-memoryd-macos-arm64
+            artifact: mimir-macos-arm64
 
     steps:
     - name: Checkout code
@@ -149,19 +149,19 @@ jobs:
       run: brew install sqlcipher
 
     - name: Build release binary
-      run: cargo build --release --target ${{ matrix.target }} -p safe-memoryd
+      run: cargo build --release --target ${{ matrix.target }} -p mimir
 
     - name: Strip binary (Unix)
       if: matrix.os != 'windows-latest'
-      run: strip target/${{ matrix.target }}/release/safe-memoryd
+      run: strip target/${{ matrix.target }}/release/mimir
 
     - name: Create artifact
       run: |
         mkdir -p artifacts
         if [ "${{ matrix.os }}" = "windows-latest" ]; then
-          cp target/${{ matrix.target }}/release/safe-memoryd.exe artifacts/${{ matrix.artifact }}
+          cp target/${{ matrix.target }}/release/mimir.exe artifacts/${{ matrix.artifact }}
         else
-          cp target/${{ matrix.target }}/release/safe-memoryd artifacts/${{ matrix.artifact }}
+          cp target/${{ matrix.target }}/release/mimir artifacts/${{ matrix.artifact }}
         fi
 
     - name: Upload release asset

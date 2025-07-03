@@ -1,7 +1,7 @@
 [workspace]
 resolver = "2"
 members = [
-    "crates/safe-memoryd",
+    "crates/mimir",
     "crates/mimir-vector",
     "crates/mimir-db", 
     "crates/mimir-guardrails",
@@ -11,7 +11,7 @@ members = [
     "crates/mimir-tray",
     "crates/mimir-core",
     "bindings/python",
-    "bindings/nodejs",
+    # "bindings/nodejs",  # Temporarily disabled until napi issues are resolved
     "bindings/wasm"
 ]
 
@@ -43,10 +43,13 @@ ring = "0.17"
 chacha20poly1305 = "0.10"
 argon2 = "0.5"
 
-# Vector operations and ML
-candle-core = "0.6"
-candle-transformers = "0.6"
-ort = "2.0.0-rc.10"
+# Vector operations and ML (temporarily disabled for stable build)
+# candle-core = "0.6"
+# candle-transformers = "0.6" 
+# ort = "2.0.0-rc.10"
+
+# Temporary ML alternatives for stable build
+ndarray = "0.15"
 
 # Networking and RPC
 tonic = { version = "0.11", features = ["tls"] }

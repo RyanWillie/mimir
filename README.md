@@ -21,10 +21,10 @@ Mimir provides developers and end-users with a privacy-first memory layer that l
 
 ```bash
 # macOS
-brew install safememory/tap/safe-memoryd
+brew install safememory/tap/mimir
 
 # Linux/Windows (cargo required)
-cargo install safe-memoryd safe-memory
+cargo install mimir safe-memory
 
 # From source
 git clone https://github.com/your-org/mimir
@@ -36,10 +36,10 @@ cargo build --release
 
 ```bash
 # Initialize vault
-safe-memoryd init
+mimir init
 
 # Start daemon
-safe-memoryd start &
+mimir start &
 
 # Check status
 safe-memory status
@@ -103,7 +103,7 @@ curl -X POST http://localhost:8100/memories \
 
 | Component | Description | Key Technologies |
 |-----------|-------------|------------------|
-| **safe_memoryd** | MCP server daemon | `axum`, `tokio`, JSON-RPC |
+| **mimir** | MCP server daemon | `axum`, `tokio`, JSON-RPC |
 | **Vector Store** | HNSW similarity search | `hnswlib-rs`, 768-D embeddings |
 | **Database** | Encrypted SQLite | `SQLCipher`, metadata + graph |
 | **Guardrails** | PII detection & classification | `TinyBERT-ONNX`, `presidio-rs` |
@@ -148,7 +148,7 @@ Access control is enforced at retrieval time based on app permissions.
 cargo build --workspace
 
 # Individual components
-cargo build -p safe-memoryd
+cargo build -p mimir
 cargo build -p mimir-cli
 
 # Release build

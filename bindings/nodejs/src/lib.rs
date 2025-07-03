@@ -17,13 +17,13 @@ impl JsMemoryClient {
     }
     
     #[napi]
-    pub async fn ingest(&self, content: String) -> Result<()> {
+    pub async fn ingest(&self, _content: String) -> Result<()> {
         // TODO: Implement async call to client
         Ok(())
     }
     
     #[napi]
-    pub async fn retrieve(&self, query: String, top_k: u32) -> Result<Vec<String>> {
+    pub async fn retrieve(&self, _query: String, _top_k: u32) -> Result<Vec<String>> {
         // TODO: Implement async call and serialization
         Ok(vec![])
     }

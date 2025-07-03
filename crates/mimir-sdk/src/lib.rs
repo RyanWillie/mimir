@@ -1,6 +1,6 @@
 //! Mimir SDK - Client library for accessing the memory vault
 
-use mimir_core::{Result, Memory, MemoryIngestion, MemoryQuery, MemoryResult, AppId};
+use mimir_core::{Result, MemoryIngestion, MemoryQuery, MemoryResult, AppId};
 
 /// Client for interacting with Mimir memory vault
 pub struct MemoryClient {
@@ -18,13 +18,13 @@ impl MemoryClient {
     }
     
     /// Ingest a new memory
-    pub async fn ingest(&self, memory: MemoryIngestion) -> Result<()> {
+    pub async fn ingest(&self, _memory: MemoryIngestion) -> Result<()> {
         // TODO: Implement HTTP client for MCP protocol
         Ok(())
     }
     
     /// Retrieve memories matching a query
-    pub async fn retrieve(&self, query: MemoryQuery) -> Result<Vec<MemoryResult>> {
+    pub async fn retrieve(&self, _query: MemoryQuery) -> Result<Vec<MemoryResult>> {
         // TODO: Implement memory retrieval
         Ok(vec![])
     }

@@ -1,43 +1,36 @@
-//! Mimir Guardrails - PII detection and content classification
+//! Mimir Guardrails - Content safety and privacy protection
 
-use mimir_core::{Result, MemoryClass};
+use mimir_core::Result;
+use serde::{Deserialize, Serialize};
 
-/// Content classification result
-#[derive(Debug, Clone)]
+/// Classification result for content analysis
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ClassificationResult {
-    pub should_store: bool,
-    pub predicted_class: MemoryClass,
+    pub is_safe: bool,
+    pub contains_pii: bool,
     pub confidence: f32,
-    pub pii_detected: bool,
+    pub categories: Vec<String>,
 }
 
-/// Guardrails engine for content analysis
-pub struct GuardrailsEngine {
-    // TODO: Add ONNX models
+/// Content safety and privacy guardrails
+pub struct Guardrails {
+    // TODO: Add ML models for safety and PII detection
 }
 
-impl GuardrailsEngine {
-    /// Create a new guardrails engine
-    pub fn new() -> Result<Self> {
-        Ok(Self {})
+impl Guardrails {
+    /// Create new guardrails instance
+    pub fn new() -> Self {
+        Self {}
     }
     
-    /// Classify content and detect PII
-    pub async fn classify_content(&self, content: &str) -> Result<ClassificationResult> {
-        // TODO: Implement TinyBERT classification
-        // TODO: Implement PII detection with presidio-rs
-        
+    /// Classify content for safety and privacy
+    pub async fn classify_content(&self, _content: &str) -> Result<ClassificationResult> {
+        // TODO: Implement content classification
         Ok(ClassificationResult {
-            should_store: true,
-            predicted_class: MemoryClass::Personal,
-            confidence: 0.8,
-            pii_detected: false,
+            is_safe: true,
+            contains_pii: false,
+            confidence: 0.9,
+            categories: vec![],
         })
-    }
-    
-    /// Redact PII from content
-    pub async fn redact_pii(&self, content: &str) -> Result<String> {
-        // TODO: Implement PII redaction
-        Ok(content.to_string())
     }
 } 

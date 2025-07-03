@@ -16,9 +16,9 @@ thiserror.workspace = true
 anyhow.workspace = true
 tokio.workspace = true
 tracing.workspace = true
-ort.workspace = true
+# ort.workspace = true  # Temporarily disabled due to dependency conflicts
 
-# PII detection and classification
+# PII detection and classification (using simple regex-based approach for now)
 regex = "1.0"
 once_cell = "1.0"
 lazy_static = "1.4"

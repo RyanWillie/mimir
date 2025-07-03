@@ -14,8 +14,8 @@ crate-type = ["cdylib"]
 mimir-core = { path = "../../crates/mimir-core" }
 mimir-sdk = { path = "../../crates/mimir-sdk" }
 
-napi = { version = "2.14", default-features = false, features = ["napi4"] }
-napi-derive = "2.14"
+napi = { version = "2.16", default-features = false, features = ["napi4", "tokio_rt"] }
+napi-derive = "2.16"
 tokio.workspace = true
 serde.workspace = true
 serde_json.workspace = true

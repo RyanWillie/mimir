@@ -1,27 +1,27 @@
-//! Mimir Vector Store - HNSW-based vector indexing for AI memories
+//! Mimir Vector - High-performance vector similarity search
 
-use mimir_core::{Result, MemoryId};
+use mimir_core::{MemoryId, Result};
 
-/// Vector store for storing and retrieving memory embeddings
+/// Vector store for embeddings and similarity search
 pub struct VectorStore {
-    // TODO: Add HNSW index
+    // TODO: Add vector index (HNSW, IVF, etc.)
 }
 
 impl VectorStore {
     /// Create a new vector store
-    pub fn new() -> Result<Self> {
-        Ok(Self {})
+    pub fn new() -> Self {
+        Self {}
     }
     
     /// Add a vector to the store
-    pub async fn add_vector(&mut self, id: MemoryId, embedding: Vec<f32>) -> Result<()> {
-        // TODO: Implement HNSW insertion
+    pub async fn add_vector(&mut self, _id: MemoryId, _embedding: Vec<f32>) -> Result<()> {
+        // TODO: Implement vector indexing
         Ok(())
     }
     
     /// Search for similar vectors
-    pub async fn search(&self, query: Vec<f32>, k: usize) -> Result<Vec<(MemoryId, f32)>> {
-        // TODO: Implement HNSW search
+    pub async fn search(&self, _query: Vec<f32>, _k: usize) -> Result<Vec<(MemoryId, f32)>> {
+        // TODO: Implement similarity search
         Ok(vec![])
     }
 } 

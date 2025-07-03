@@ -1,0 +1,28 @@
+[package]
+name = "mimir-tray"
+version.workspace = true
+edition.workspace = true
+license = "AGPL-3.0"  # UI components use AGPL-3.0 as specified
+repository.workspace = true
+authors.workspace = true
+description = "System tray UI for Mimir AI Memory Vault"
+
+[dependencies]
+mimir-core = { path = "../mimir-core" }
+mimir-sdk = { path = "../mimir-sdk" }
+
+serde.workspace = true
+serde_json.workspace = true
+thiserror.workspace = true
+anyhow.workspace = true
+tokio.workspace = true
+tracing.workspace = true
+tonic.workspace = true
+
+# Tauri for cross-platform UI
+tauri = { version = "2.0", features = ["macos-private-api"] }
+tauri-plugin-store = "2.0"
+tauri-plugin-window-state = "2.0"
+
+[dev-dependencies]
+tauri = { version = "2.0", features = ["test"] } 

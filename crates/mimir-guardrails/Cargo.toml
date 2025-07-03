@@ -1,0 +1,27 @@
+[package]
+name = "mimir-guardrails"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+description = "Guardrails with PII detection and content classification for Mimir AI Memory Vault"
+
+[dependencies]
+mimir-core = { path = "../mimir-core" }
+
+serde.workspace = true
+serde_json.workspace = true
+thiserror.workspace = true
+anyhow.workspace = true
+tokio.workspace = true
+tracing.workspace = true
+ort.workspace = true
+
+# PII detection and classification
+regex = "1.0"
+once_cell = "1.0"
+lazy_static = "1.4"
+
+[dev-dependencies]
+tokio-test = "0.4" 

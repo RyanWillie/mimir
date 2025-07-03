@@ -1,0 +1,30 @@
+[package]
+name = "mimir-wasm"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+description = "WebAssembly bindings for Mimir AI Memory Vault"
+
+[lib]
+crate-type = ["cdylib"]
+
+[dependencies]
+mimir-core = { path = "../../crates/mimir-core" }
+mimir-sdk = { path = "../../crates/mimir-sdk" }
+
+wasm-bindgen = "0.2"
+wasm-bindgen-futures = "0.4"
+js-sys = "0.3"
+web-sys = "0.3"
+serde.workspace = true
+serde_json.workspace = true
+serde-wasm-bindgen = "0.6"
+
+[dependencies.getrandom]
+version = "0.2"
+features = ["js"]
+
+[dev-dependencies]
+wasm-bindgen-test = "0.3" 

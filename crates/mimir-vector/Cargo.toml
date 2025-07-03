@@ -1,0 +1,28 @@
+[package]
+name = "mimir-vector"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+description = "Vector store with HNSW indexing for Mimir AI Memory Vault"
+
+[dependencies]
+mimir-core = { path = "../mimir-core" }
+
+serde.workspace = true
+serde_json.workspace = true
+thiserror.workspace = true
+anyhow.workspace = true
+candle-core.workspace = true
+candle-transformers.workspace = true
+tokio.workspace = true
+tracing.workspace = true
+
+# Vector store specific dependencies
+hnsw_rs = "0.3"
+ndarray = "0.15"
+
+[dev-dependencies]
+criterion.workspace = true
+tokio-test = "0.4" 

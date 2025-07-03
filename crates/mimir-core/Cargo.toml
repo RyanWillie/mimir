@@ -1,0 +1,19 @@
+[package]
+name = "mimir-core"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+description = "Core types and utilities for Mimir AI Memory Vault"
+
+[dependencies]
+serde.workspace = true
+serde_json.workspace = true
+thiserror.workspace = true
+anyhow.workspace = true
+uuid.workspace = true
+chrono.workspace = true
+tracing.workspace = true
+num_cpus.workspace = true
+directories.workspace = true 

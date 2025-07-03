@@ -1,0 +1,36 @@
+[package]
+name = "mimir-cli"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+description = "Command-line interface for Mimir AI Memory Vault"
+
+[[bin]]
+name = "safe-memory"
+path = "src/main.rs"
+
+[dependencies]
+mimir-core = { path = "../mimir-core" }
+mimir-sdk = { path = "../mimir-sdk" }
+
+clap.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+thiserror.workspace = true
+anyhow.workspace = true
+tokio.workspace = true
+tracing.workspace = true
+tracing-subscriber.workspace = true
+config.workspace = true
+directories.workspace = true
+
+# CLI specific
+console = "0.15"
+indicatif = "0.17"
+colored = "2.0"
+
+[dev-dependencies]
+assert_cmd = "2.0"
+predicates = "3.0" 

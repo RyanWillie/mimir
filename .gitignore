@@ -1,0 +1,112 @@
+# Rust
+/target/
+**/*.rs.bk
+*.pdb
+
+# Cargo
+Cargo.lock
+.cargo/
+
+# IDE files
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS files
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+
+# Local development
+*.local
+.env
+.env.local
+
+# Database files
+*.db
+*.sqlite
+*.sqlite3
+vault.db*
+
+# Logs
+*.log
+logs/
+
+# Temporary files
+tmp/
+temp/
+*.tmp
+*.temp
+
+# Security sensitive files
+*.key
+*.pem
+*.cert
+master.key
+secrets/
+
+# Build artifacts
+dist/
+build/
+artifacts/
+
+# Coverage reports
+coverage/
+*.profdata
+*.profraw
+lcov.info
+tarpaulin-report.html
+
+# Documentation build
+docs/_build/
+book/_book/
+
+# Node.js (for bindings)
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# Python (for bindings)
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+
+# Virtual environments
+venv/
+env/
+ENV/
+
+# Jupyter Notebook
+.ipynb_checkpoints
+
+# Benchmarking
+criterion/
+bench_results/
+
+# Flamegraph
+flamegraph.svg
+perf.data* 

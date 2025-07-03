@@ -1,0 +1,25 @@
+[package]
+name = "mimir-nodejs"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+description = "Node.js bindings for Mimir AI Memory Vault"
+
+[lib]
+crate-type = ["cdylib"]
+
+[dependencies]
+mimir-core = { path = "../../crates/mimir-core" }
+mimir-sdk = { path = "../../crates/mimir-sdk" }
+
+napi = { version = "2.14", default-features = false, features = ["napi4"] }
+napi-derive = "2.14"
+tokio.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+anyhow.workspace = true
+
+[build-dependencies]
+napi-build = "2.0" 

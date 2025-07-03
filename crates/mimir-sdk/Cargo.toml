@@ -1,0 +1,27 @@
+[package]
+name = "mimir-sdk"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+description = "SDK for Mimir AI Memory Vault client libraries"
+
+[dependencies]
+mimir-core = { path = "../mimir-core" }
+
+serde.workspace = true
+serde_json.workspace = true
+thiserror.workspace = true
+anyhow.workspace = true
+tokio.workspace = true
+tracing.workspace = true
+
+# HTTP client
+reqwest = { version = "0.11", features = ["json"] }
+
+# Code generation
+cbindgen = "0.26"
+
+[dev-dependencies]
+tokio-test = "0.4" 

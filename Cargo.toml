@@ -1,0 +1,84 @@
+[workspace]
+resolver = "2"
+members = [
+    "crates/safe-memoryd",
+    "crates/mimir-vector",
+    "crates/mimir-db", 
+    "crates/mimir-guardrails",
+    "crates/mimir-compression",
+    "crates/mimir-sdk",
+    "crates/mimir-cli",
+    "crates/mimir-tray",
+    "crates/mimir-core",
+    "bindings/python",
+    "bindings/nodejs",
+    "bindings/wasm"
+]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2021"
+license = "Apache-2.0"
+repository = "https://github.com/your-org/mimir"
+homepage = "https://github.com/your-org/mimir"
+authors = ["Mimir Contributors"]
+description = "Local-First, Zero-Knowledge AI Memory Vault"
+keywords = ["ai", "memory", "privacy", "local-first", "zero-knowledge"]
+categories = ["database", "cryptography", "development-tools"]
+
+[workspace.dependencies]
+# Async runtime and HTTP server
+tokio = { version = "1.0", features = ["full"] }
+axum = "0.7"
+tower = "0.4"
+tower-http = { version = "0.5", features = ["cors", "trace"] }
+
+# Database and storage
+rusqlite = { version = "0.30", features = ["bundled"] }
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+
+# Cryptography
+ring = "0.17"
+chacha20poly1305 = "0.10"
+argon2 = "0.5"
+
+# Vector operations and ML
+candle-core = "0.6"
+candle-transformers = "0.6"
+ort = "2.0.0-rc.10"
+
+# Networking and RPC
+tonic = { version = "0.11", features = ["tls"] }
+prost = "0.12"
+
+# Error handling and utilities
+anyhow = "1.0"
+thiserror = "1.0"
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+uuid = { version = "1.0", features = ["v4", "serde"] }
+chrono = { version = "0.4", features = ["serde"] }
+
+# Configuration and CLI
+clap = { version = "4.0", features = ["derive"] }
+config = "0.14"
+directories = "5.0"
+
+# Testing
+criterion = "0.5"
+
+# System utilities
+num_cpus = "1.0"
+
+[profile.release]
+opt-level = 3
+lto = true
+codegen-units = 1
+panic = "abort"
+strip = true
+
+[profile.dev]
+opt-level = 0
+debug = true
+split-debuginfo = "unpacked" 

@@ -82,8 +82,7 @@ Mimir implements multiple layers of security:
 - *None yet - project is in early development*
 
 ### Planned Audits
-- **Q2 2024**: Third-party cryptographic review
-- **Q4 2024**: Full security audit before v1.0 release
+- **Q4 2025**: Full security audit before v1.0 release
 
 ## 🚀 Security Development Practices
 
@@ -127,8 +126,6 @@ When contributing code that handles sensitive data:
 
 For questions about this security policy:
 - **General questions**: Open a GitHub Discussion
-- **Security concerns**: security@mimir-project.org
-- **Maintainers**: See [MAINTAINERS.md](MAINTAINERS.md)
 
 ---
 

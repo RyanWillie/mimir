@@ -58,7 +58,7 @@ pub struct MimirServer {
     /// Thread-safe memory store
     store: Arc<Mutex<HashMap<String, Memory>>>,
     /// Tool router for handling MCP tool calls
-    tool_router: ToolRouter<Self>,
+    pub tool_router: ToolRouter<Self>,
 }
 
 #[tool_router]
@@ -285,6 +285,13 @@ impl rmcp::ServerHandler for MimirServer {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use rmcp::{
+        model::CallToolRequestParam,
+        service::ServiceExt,
+        ServerHandler,
+    };
+    use serde_json::{json, Map, Value};
+    use std::time::Duration;
 
     #[tokio::test]
     async fn test_mimir_server_creation() {
@@ -370,4 +377,173 @@ mod tests {
         let stats_result = server.get_vault_stats().await;
         assert!(stats_result.is_ok());
     }
+
+    #[tokio::test]
+    async fn test_mcp_server_startup_and_basic_functionality() {
+        // Create a server instance
+        let server = MimirServer::new();
+        server.add_sample_data().await;
+        
+        // Test that server can be created and initialized
+        assert!(server.store.lock().await.len() > 0);
+        
+        // Test server handler info
+        let server_info = server.get_info();
+        assert!(server_info.instructions.is_some());
+        assert!(server_info.instructions.as_ref().unwrap().contains("Mimir"));
+        assert!(server_info.instructions.as_ref().unwrap().contains("Memory Vault"));
+        assert!(server_info.capabilities.tools.is_some());
+        
+        // Test that server has correct capabilities
+        assert!(server_info.capabilities.tools.is_some());
+    }
+
+    #[tokio::test]
+    async fn test_mcp_tool_functionality() {
+        let server = MimirServer::new();
+        
+        // Test adding memories with proper parameters
+        let memory_input = MemoryInput {
+            id: "param-test-1".to_string(),
+            user_id: "test-user".to_string(),
+            text: "Test memory with parameters".to_string(),
+        };
+        
+        let add_params = AddMemoriesParams {
+            memories: vec![memory_input],
+        };
+        
+        let add_result = server.add_memories(Parameters(add_params)).await;
+        assert!(add_result.is_ok());
+        
+        let response = add_result.unwrap();
+        assert!(!response.content.is_empty());
+        
+        // Test search functionality
+        let search_params = SearchMemoriesParams {
+            query: "parameters".to_string(),
+        };
+        
+        let search_result = server.search_memories(Parameters(search_params)).await;
+        assert!(search_result.is_ok());
+    }
+
+    #[tokio::test]
+    async fn test_mcp_server_tool_router() {
+        let server = MimirServer::new();
+        
+        // Test that the tool router is properly initialized
+        assert!(server.tool_router.list_all().len() > 0);
+        
+        // Verify all expected tools are present
+        let tools = server.tool_router.list_all();
+        let tool_names: Vec<String> = tools
+            .iter()
+            .map(|t| t.name.to_string())
+            .collect();
+        
+        assert!(tool_names.contains(&"add_memories".to_string()));
+        assert!(tool_names.contains(&"update_memory".to_string()));
+        assert!(tool_names.contains(&"delete_memory".to_string()));
+        assert!(tool_names.contains(&"search_memories".to_string()));
+        assert!(tool_names.contains(&"list_memories".to_string()));
+        assert!(tool_names.contains(&"get_vault_stats".to_string()));
+        assert!(tool_names.contains(&"clear_vault".to_string()));
+        
+        // Test that tools have descriptions
+        let add_tool = tools
+            .iter()
+            .find(|t| t.name == "add_memories")
+            .unwrap();
+        
+        assert!(add_tool.description.is_some());
+        assert!(add_tool.description.as_ref().unwrap().contains("Add new memories"));
+    }
+
+    #[tokio::test]
+    async fn test_mcp_server_concurrent_operations() {
+        let server = MimirServer::new();
+        
+        // Test concurrent memory operations
+        let mut handles = Vec::new();
+        
+        for i in 0..5 {
+            let server_clone = server.clone();
+            let handle = tokio::spawn(async move {
+                let memory_input = MemoryInput {
+                    id: format!("concurrent-{}", i),
+                    user_id: format!("user-{}", i),
+                    text: format!("Concurrent test memory {}", i),
+                };
+                
+                let add_params = AddMemoriesParams {
+                    memories: vec![memory_input],
+                };
+                
+                server_clone.add_memories(Parameters(add_params)).await
+            });
+            
+            handles.push(handle);
+        }
+        
+        // Wait for all operations to complete
+        for handle in handles {
+            let result = handle.await.unwrap();
+            assert!(result.is_ok());
+        }
+        
+        // Verify memories were added
+        let stats_result = server.get_vault_stats().await;
+        assert!(stats_result.is_ok());
+    }
+
+    #[tokio::test]
+    async fn test_mcp_server_error_conditions() {
+        let server = MimirServer::new();
+        
+        // Test updating non-existent memory
+        let update_params = UpdateMemoryParams {
+            id: "non-existent".to_string(),
+            text: "Updated text".to_string(),
+        };
+        
+        let update_result = server.update_memory(Parameters(update_params)).await;
+        assert!(update_result.is_ok());
+        
+        // Test deleting non-existent memory
+        let delete_params = DeleteMemoryParams {
+            id: "non-existent".to_string(),
+        };
+        
+        let delete_result = server.delete_memory(Parameters(delete_params)).await;
+        assert!(delete_result.is_ok());
+    }
+
+    #[tokio::test]
+    async fn test_mcp_server_transport_readiness() {
+        let server = MimirServer::new();
+        
+        // Test that the server can be prepared for transport
+        // This simulates the readiness check without actual transport
+        let server_clone = server.clone();
+        
+        // Run server creation and initialization in a task
+        let server_task = tokio::spawn(async move {
+            server_clone.add_sample_data().await;
+            
+            // Verify server is ready
+            let list_result = server_clone.list_memories().await;
+            assert!(list_result.is_ok());
+            
+            let stats_result = server_clone.get_vault_stats().await;
+            assert!(stats_result.is_ok());
+            
+            "Server ready"
+        });
+        
+        let result = server_task.await.unwrap();
+        assert_eq!(result, "Server ready");
+    }
+
+
 }

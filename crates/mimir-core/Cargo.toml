@@ -22,6 +22,22 @@ regex.workspace = true
 directories.workspace = true
 num_cpus.workspace = true
 
+# Encryption dependencies
+ring = "0.17"
+chacha20poly1305.workspace = true
+zeroize = { version = "1.6", features = ["derive"] }
+hex = "0.4"
+
+# OS keychain support
+[target.'cfg(target_os = "macos")'.dependencies]
+keyring = "2.0"
+
+[target.'cfg(target_os = "linux")'.dependencies]
+keyring = "2.0"
+
+[target.'cfg(target_os = "windows")'.dependencies]
+keyring = "2.0"
+
 # Test utilities dependencies (only when test-utils feature is enabled)
 tempfile = { workspace = true, optional = true }
 

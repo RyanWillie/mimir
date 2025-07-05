@@ -79,6 +79,20 @@ async fn main() -> Result<()> {
         // TODO: Implement config file loading
     }
 
+    // Initialize cryptographic system
+    info!("Initializing cryptographic system");
+    let keyset_path = config.storage.vault_path.parent()
+        .unwrap_or_else(|| std::path::Path::new("."))
+        .join("keyset.json");
+    
+    let _crypto_manager = mimir_core::crypto::CryptoManager::new(&keyset_path)
+        .map_err(|e| {
+            error!("Failed to initialize crypto system: {}", e);
+            e
+        })?;
+    
+    info!("Crypto system initialized successfully");
+
     // Determine server mode
     let server_mode = cli.mode.unwrap_or_else(|| {
         if config.mcp.enabled {

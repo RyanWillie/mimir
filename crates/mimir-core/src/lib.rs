@@ -4,6 +4,7 @@
 //! all Mimir components.
 
 pub mod config;
+pub mod crypto;
 pub mod error;
 pub mod types;
 

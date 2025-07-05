@@ -269,7 +269,8 @@ pub mod generators {
     }
 }
 
-/// Environment setup utilities for tests
+// Only include env module when test-utils feature is enabled
+#[cfg(feature = "test-utils")]
 pub mod env {
     use std::path::PathBuf;
     use tempfile::TempDir;

@@ -16,7 +16,7 @@ Build the world's most privacy-preserving AI memory system that:
 **Core Infrastructure**
 - [x] Workspace setup with all crates
 - [x] Basic daemon structure (`mimir`)
-- [x] CLI tool (`safe-memory`)
+- [x] CLI tool (`mimir`)
 - [x] Core types and error handling
 - [ ] Basic MCP (Model Context Protocol) server
 - [ ] Health check endpoints

@@ -29,7 +29,7 @@ impl PyMemoryClient {
 
 /// A Python module implemented in Rust.
 #[pymodule]
-fn safe_memory(_py: Python, m: &PyModule) -> PyResult<()> {
+fn mimir(_py: Python, m: &PyModule) -> PyResult<()> {
     m.add_class::<PyMemoryClient>()?;
     Ok(())
 }

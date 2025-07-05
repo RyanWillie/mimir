@@ -61,7 +61,7 @@ mimir/
 - Configuration loading and logging setup
 - Health check endpoints (ready for implementation)
 
-**CLI Tool (`safe-memory`):**
+**CLI Tool (`mimir`):**
 - Commands: `init`, `start`, `stop`, `status`, `burn`
 - Memory class management
 - Interactive confirmation for destructive operations
@@ -116,7 +116,7 @@ mimir/
 ### 🎯 **Ready for Development**
 
 **Immediate Next Steps:**
-1. **Implement MCP Server** - Basic JSON-RPC endpoints in `safe-memoryd`
+1. **Implement MCP Server** - Basic JSON-RPC endpoints in `mimir`
 2. **Vector Store** - HNSW implementation for similarity search
 3. **Database Layer** - SQLCipher integration with migrations
 4. **Basic UI** - Tauri tray application with permission controls

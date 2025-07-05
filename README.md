@@ -21,10 +21,10 @@ Mimir provides developers and end-users with a privacy-first memory layer that l
 
 ```bash
 # macOS
-brew install safememory/tap/mimir
+brew install mimir/tap/mimir
 
 # Linux/Windows (cargo required)
-cargo install mimir safe-memory
+cargo install mimir
 
 # From source
 git clone https://github.com/your-org/mimir
@@ -42,7 +42,7 @@ mimir init
 mimir start &
 
 # Check status
-safe-memory status
+mimir status
 ```
 
 ### Usage Examples
@@ -50,7 +50,7 @@ safe-memory status
 #### Python
 
 ```python
-from safe_memory import Memory
+from mimir import Memory
 
 # Connect to local daemon
 mem = Memory(app_id="my-chatbot", allow=["work", "personal"])
@@ -66,7 +66,7 @@ reply = llm.chat(context + user_input)
 #### Node.js
 
 ```javascript
-import { Memory } from "safe-memory";
+import { Memory } from "mimir";
 
 const mem = new Memory({ 
   appId: "my-assistant",
@@ -89,7 +89,7 @@ curl -X POST http://localhost:8100/memories \
 
 ```
 ┌──────── Chat / Agent ──────┐    JSON-RPC/MCP     ┌──────────────┐
-│      Any LLM client        ├─────────────────────►│  safe_memoryd│
+│      Any LLM client        ├─────────────────────►│      mimir   │
 └────────────────────────────┘                     │   (Rust)     │
           ▲ retrieve context                        ├────┬─────────┤
           │                                        │    │         │

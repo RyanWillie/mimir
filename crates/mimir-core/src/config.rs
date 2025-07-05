@@ -1,6 +1,28 @@
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
 
+/// Get the default Mimir application directory
+/// 
+/// Returns OS-appropriate paths:
+/// - macOS: ~/Library/Application Support/Mimir/
+/// - Linux: ~/.local/share/mimir/
+/// - Windows: %USERPROFILE%\AppData\Local\Mimir\
+pub fn get_default_app_dir() -> PathBuf {
+    directories::ProjectDirs::from("", "", "Mimir")
+        .map(|d| d.data_dir().to_path_buf())
+        .unwrap_or_else(|| PathBuf::from("./mimir"))
+}
+
+/// Get the default vault database path
+pub fn get_default_vault_path() -> PathBuf {
+    get_default_app_dir().join("vault.db")
+}
+
+/// Get the default keyset path
+pub fn get_default_keyset_path() -> PathBuf {
+    get_default_app_dir().join("keyset.json")
+}
+
 /// Main configuration for Mimir daemon
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct MimirConfig {
@@ -82,16 +104,12 @@ impl Default for MimirConfig {
                 max_connections: 10,
             },
             storage: StorageConfig {
-                vault_path: directories::ProjectDirs::from("", "", "mimir")
-                    .map(|d| d.data_dir().join("vault.db"))
-                    .unwrap_or_else(|| PathBuf::from("./vault.db")),
+                vault_path: get_default_vault_path(),
                 max_memory_age_days: 90,
                 compression_threshold_days: 30,
             },
             security: SecurityConfig {
-                master_key_path: directories::ProjectDirs::from("", "", "mimir")
-                    .map(|d| d.config_dir().join("master.key"))
-                    .unwrap_or_else(|| PathBuf::from("./master.key")),
+                master_key_path: get_default_app_dir().join("master.key"),
                 enable_pii_detection: true,
                 strict_access_control: true,
             },
@@ -417,5 +435,36 @@ mod tests {
         // Should contain model identifiers
         assert!(config.processing.embedding_model.contains('/'));
         assert!(config.processing.compression_model.contains('/'));
+    }
+
+    #[test]
+    fn test_default_paths_are_appropriate() {
+        let app_dir = get_default_app_dir();
+        let vault_path = get_default_vault_path();
+        let keyset_path = get_default_keyset_path();
+
+        // All paths should be absolute or contain Mimir/mimir
+        let app_dir_str = app_dir.to_string_lossy().to_lowercase();
+        assert!(app_dir_str.contains("mimir") || app_dir_str.starts_with("./mimir"));
+
+        // Vault path should be in the app directory
+        assert!(vault_path.starts_with(&app_dir));
+        assert!(vault_path.file_name().unwrap() == "vault.db");
+
+        // Keyset path should be in the app directory
+        assert!(keyset_path.starts_with(&app_dir));
+        assert!(keyset_path.file_name().unwrap() == "keyset.json");
+    }
+
+    #[test]
+    fn test_default_config_uses_proper_paths() {
+        let config = MimirConfig::default();
+
+        // Storage path should be the default vault path
+        assert_eq!(config.storage.vault_path, get_default_vault_path());
+
+        // Security path should be in the app directory
+        assert!(config.security.master_key_path.starts_with(&get_default_app_dir()));
+        assert!(config.security.master_key_path.file_name().unwrap() == "master.key");
     }
 }

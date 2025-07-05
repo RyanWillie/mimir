@@ -115,7 +115,7 @@ cargo llvm-cov --workspace --html
 mimir/
 ├── crates/              # Core Rust crates
 │   ├── mimir-core/      # Shared types and utilities
-│   ├── safe-memoryd/    # Main daemon
+│   ├── mimir/           # Main daemon
 │   ├── mimir-vector/    # Vector store (HNSW)
 │   ├── mimir-db/        # Encrypted database
 │   ├── mimir-guardrails/# PII detection & classification

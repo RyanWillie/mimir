@@ -269,24 +269,26 @@ pub mod generators {
     }
 }
 
-// Only include env module when test-utils feature is enabled
+// Only include env module when test-utils feature is explicitly enabled
 #[cfg(feature = "test-utils")]
 pub mod env {
     use std::path::PathBuf;
-    use tempfile::TempDir;
-
+    
+    #[cfg(feature = "test-utils")]
+    use tempfile;
+    
     /// Create a temporary directory for test data
-    pub fn create_temp_dir() -> TempDir {
+    pub fn create_temp_dir() -> tempfile::TempDir {
         tempfile::tempdir().expect("Failed to create temp directory")
     }
 
     /// Get a test database path in a temporary directory
-    pub fn get_test_db_path(temp_dir: &TempDir) -> PathBuf {
+    pub fn get_test_db_path(temp_dir: &tempfile::TempDir) -> PathBuf {
         temp_dir.path().join("test.db")
     }
 
     /// Get a test vault path in a temporary directory
-    pub fn get_test_vault_path(temp_dir: &TempDir) -> PathBuf {
+    pub fn get_test_vault_path(temp_dir: &tempfile::TempDir) -> PathBuf {
         temp_dir.path().join("test_vault.db")
     }
 }

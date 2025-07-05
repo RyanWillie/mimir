@@ -8,7 +8,7 @@ authors.workspace = true
 description = "Python bindings for Mimir AI Memory Vault"
 
 [lib]
-name = "safe_memory"
+name = "mimir"
 crate-type = ["cdylib"]
 
 [dependencies]

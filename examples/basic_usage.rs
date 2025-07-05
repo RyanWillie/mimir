@@ -108,8 +108,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     
     println!("\n🎉 Example completed successfully!");
     println!("💡 Try running the CLI commands:");
-    println!("   safe-memory status");
-    println!("   safe-memory burn personal  # (with confirmation)");
+    println!("   mimir status");
+    println!("   mimir burn personal  # (with confirmation)");
     
     Ok(())
 } 

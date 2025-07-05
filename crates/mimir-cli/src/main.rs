@@ -4,10 +4,10 @@ use clap::{Parser, Subcommand};
 use mimir_core::Result;
 use tracing::info;
 
-/// Safe Memory Daemon CLI - Manage your local AI memory vault
-#[derive(Parser)]
-#[command(name = "cli")]
-#[command(about = "A CLI for managing Mimir AI Memory Vault")]
+  /// Mimir CLI - Manage your local AI memory vault
+  #[derive(Parser)]
+  #[command(name = "mimir")]
+  #[command(about = "A CLI for managing Mimir AI Memory Vault")]
 struct Cli {
     #[command(subcommand)]
     command: Commands,
@@ -70,14 +70,21 @@ async fn main() -> Result<()> {
 
     match cli.command {
         Commands::Init { path } => {
-            let vault_path = path.unwrap_or_else(|| "./vault".to_string());
-            info!("Initializing memory vault at: {}", vault_path);
+            let vault_dir = match path {
+                Some(p) => std::path::PathBuf::from(p),
+                None => mimir_core::config::get_default_app_dir(),
+            };
+            
+            info!("Initializing memory vault at: {}", vault_dir.display());
+            
+            // Create the directory if it doesn't exist
+            std::fs::create_dir_all(&vault_dir)?;
             
             // Initialize crypto manager
-            let keyset_path = std::path::Path::new(&vault_path).join("keyset.json");
+            let keyset_path = vault_dir.join("keyset.json");
             let _crypto_manager = mimir_core::crypto::CryptoManager::new(&keyset_path)?;
             
-            println!("✅ Memory vault initialized at {}", vault_path);
+            println!("✅ Memory vault initialized at {}", vault_dir.display());
         }
         Commands::Status => {
             info!("Checking vault status");
@@ -115,7 +122,7 @@ async fn main() -> Result<()> {
             info!("Rotating root encryption key");
             
             // Load crypto manager and rotate root key
-            let keyset_path = std::path::Path::new("./vault").join("keyset.json");
+            let keyset_path = mimir_core::config::get_default_keyset_path();
             let mut crypto_manager = mimir_core::crypto::CryptoManager::new(&keyset_path)?;
             crypto_manager.rotate_root_key()?;
             
@@ -137,7 +144,7 @@ async fn main() -> Result<()> {
             info!("Rotating class encryption key: {}", class);
             
             // Load crypto manager and rotate class key
-            let keyset_path = std::path::Path::new("./vault").join("keyset.json");
+            let keyset_path = mimir_core::config::get_default_keyset_path();
             let mut crypto_manager = mimir_core::crypto::CryptoManager::new(&keyset_path)?;
             crypto_manager.rotate_class_key(&class)?;
             

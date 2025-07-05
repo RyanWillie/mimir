@@ -4,6 +4,7 @@
 
 use clap::{Parser, Subcommand};
 use mimir_core::{config::MimirConfig, Result};
+use rmcp::ServiceExt;
 use std::path::PathBuf;
 use tracing::{error, info};
 
@@ -127,10 +128,20 @@ async fn start_http_server(config: MimirConfig) -> Result<()> {
 }
 
 async fn start_mcp_server(config: MimirConfig) -> Result<()> {
-    let mcp_server = mcp::MimirMcpServer::new(config);
-    match mcp_server.start().await {
-        Ok(_) => {
-            info!("MCP server shutdown gracefully");
+    info!("Starting MCP server");
+    
+    // Create the MCP server
+    let mcp_server = mcp::MimirServer::new();
+    
+    // Add sample data
+    mcp_server.add_sample_data().await;
+    
+    // Start the server with stdio transport
+    match mcp_server.serve((tokio::io::stdin(), tokio::io::stdout())).await {
+        Ok(service) => {
+            info!("MCP server connected and ready");
+            let quit_reason = service.waiting().await;
+            info!("MCP server shutdown: {:?}", quit_reason);
             Ok(())
         }
         Err(e) => {
@@ -154,9 +165,19 @@ async fn start_both_servers(config: MimirConfig) -> Result<()> {
     });
     
     let mcp_handle = tokio::spawn(async move {
-        let mcp_server = mcp::MimirMcpServer::new(config_mcp);
-        if let Err(e) = mcp_server.start().await {
-            error!("MCP server error: {}", e);
+        let mcp_server = mcp::MimirServer::new();
+        mcp_server.add_sample_data().await;
+        
+        match mcp_server.serve((tokio::io::stdin(), tokio::io::stdout())).await {
+            Ok(service) => {
+                info!("MCP server connected and ready");
+                if let Err(e) = service.waiting().await {
+                    error!("MCP server error while waiting: {}", e);
+                }
+            }
+            Err(e) => {
+                error!("MCP server error: {}", e);
+            }
         }
     });
     

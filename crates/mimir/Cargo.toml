@@ -26,6 +26,7 @@ serde.workspace = true
 serde_json.workspace = true
 chrono.workspace = true
 uuid.workspace = true
+schemars = { version = "0.8", features = ["derive"] }
 
 [dev-dependencies]
 mimir-core = { path = "../mimir-core", features = ["test-utils"] }

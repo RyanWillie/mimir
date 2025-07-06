@@ -16,21 +16,43 @@ impl Database {
         let db_path = db_path.as_ref();
         let keyset_path = keyset_path.as_ref();
         
+        // Validate paths are not empty
+        if db_path.to_string_lossy().is_empty() {
+            return Err(mimir_core::MimirError::Database(anyhow::anyhow!("Database path cannot be empty")));
+        }
+        if keyset_path.to_string_lossy().is_empty() {
+            return Err(mimir_core::MimirError::Database(anyhow::anyhow!("Keyset path cannot be empty")));
+        }
+        
+        // Validate keyset file exists
+        if !keyset_path.exists() {
+            return Err(mimir_core::MimirError::Database(anyhow::anyhow!("Keyset file does not exist: {:?}", keyset_path)));
+        }
+        
         // Initialize crypto manager
         let crypto_manager = CryptoManager::new(keyset_path)?;
         
-        // Open SQLCipher database with key in connection string
-        let db_key = crypto_manager.get_db_key()?;
-        let conn_string = format!("file:{}?key={}", db_path.display(), db_key);
+        // Ensure the database directory exists
+        if let Some(parent) = db_path.parent() {
+            std::fs::create_dir_all(parent)
+                .map_err(|e| mimir_core::MimirError::Database(anyhow::anyhow!("Failed to create database directory: {}", e)))?;
+        }
+        
+        // Create an unencrypted database with explicit flags
         let conn = Connection::open_with_flags(
-            &conn_string,
+            db_path,
             rusqlite::OpenFlags::SQLITE_OPEN_READ_WRITE | rusqlite::OpenFlags::SQLITE_OPEN_CREATE
         ).map_err(|e| mimir_core::MimirError::Database(anyhow::anyhow!("Failed to open database: {}", e)))?;
         
-        // Note: PRAGMA statements are optional for basic functionality
-        // cipher_memory_security and journal_mode can be set later if needed
+        // Test write access by creating a simple table
+        conn.execute("CREATE TABLE IF NOT EXISTS test_write (id INTEGER PRIMARY KEY)", [])
+            .map_err(|e| mimir_core::MimirError::Database(anyhow::anyhow!("Database is read-only: {}", e)))?;
         
-        // Create tables if they don't exist
+        // Test inserting into the test table
+        conn.execute("INSERT OR REPLACE INTO test_write (id) VALUES (1)", [])
+            .map_err(|e| mimir_core::MimirError::Database(anyhow::anyhow!("Cannot write to database: {}", e)))?;
+        
+        // Test inserting into memory table immediately after creation
         conn.execute(
             "CREATE TABLE IF NOT EXISTS memory (
                 id        TEXT PRIMARY KEY,
@@ -75,6 +97,10 @@ impl Database {
         let content_bytes = memory.content.as_bytes();
         let ciphertext = self.crypto_manager.encrypt(class_id, content_bytes)?;
         
+        // Serialize the ciphertext (including nonce) for storage
+        let ciphertext_data = serde_json::to_vec(&ciphertext)
+            .map_err(|e| mimir_core::MimirError::Database(anyhow::anyhow!("Failed to serialize ciphertext: {}", e)))?;
+        
         // Use a default user_id for now (can be made configurable later)
         let user_id = "default_user";
         
@@ -85,20 +111,27 @@ impl Database {
         let ts = memory.created_at.timestamp();
         
         // Insert into database
-        self.conn.execute(
+        let result = self.conn.execute(
             "INSERT OR REPLACE INTO memory (id, user_id, class_id, text_enc, vec_id, ts)
              VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
             params![
                 memory.id.to_string(),
                 user_id,
                 class_id,
-                ciphertext.data,
+                ciphertext_data,
                 vec_id,
                 ts,
             ],
-        ).map_err(|e| mimir_core::MimirError::Database(anyhow::anyhow!("Failed to store memory: {}", e)))?;
+        );
         
-        Ok(())
+        match result {
+            Ok(_) => Ok(()),
+            Err(e) => {
+                // Try to get more information about the error
+                let error_msg = format!("Failed to store memory: {} (Error code: {:?})", e, e);
+                Err(mimir_core::MimirError::Database(anyhow::anyhow!(error_msg)))
+            }
+        }
     }
 
     /// Get memories by classification
@@ -138,11 +171,9 @@ impl Database {
             let id = uuid::Uuid::parse_str(&id_str)
                 .map_err(|e| mimir_core::MimirError::Database(anyhow::anyhow!("Invalid UUID: {}", e)))?;
             
-            // Decrypt content
-            let ciphertext = mimir_core::crypto::Ciphertext {
-                data: text_enc,
-                nonce: vec![], // Note: In the new schema, we're not storing nonce separately
-            };
+            // Deserialize and decrypt content
+            let ciphertext: mimir_core::crypto::Ciphertext = serde_json::from_slice(&text_enc)
+                .map_err(|e| mimir_core::MimirError::Database(anyhow::anyhow!("Failed to deserialize ciphertext: {}", e)))?;
             let plaintext_bytes = self.crypto_manager.decrypt(&class_id, &ciphertext)?;
             let content = String::from_utf8(plaintext_bytes)
                 .map_err(|e| mimir_core::MimirError::Database(anyhow::anyhow!("Invalid UTF-8: {}", e)))?;
@@ -213,11 +244,9 @@ impl Database {
             let id = uuid::Uuid::parse_str(&id_str)
                 .map_err(|e| mimir_core::MimirError::Database(anyhow::anyhow!("Invalid UUID: {}", e)))?;
             
-            // Decrypt content
-            let ciphertext = mimir_core::crypto::Ciphertext {
-                data: text_enc,
-                nonce: vec![], // Note: In the new schema, we're not storing nonce separately
-            };
+            // Deserialize and decrypt content
+            let ciphertext: mimir_core::crypto::Ciphertext = serde_json::from_slice(&text_enc)
+                .map_err(|e| mimir_core::MimirError::Database(anyhow::anyhow!("Failed to deserialize ciphertext: {}", e)))?;
             let plaintext_bytes = self.crypto_manager.decrypt(&class_id, &ciphertext)?;
             let content = String::from_utf8(plaintext_bytes)
                 .map_err(|e| mimir_core::MimirError::Database(anyhow::anyhow!("Invalid UTF-8: {}", e)))?;
@@ -294,11 +323,9 @@ impl Database {
             let id = uuid::Uuid::parse_str(&id_str)
                 .map_err(|e| mimir_core::MimirError::Database(anyhow::anyhow!("Invalid UUID: {}", e)))?;
             
-            // Decrypt content
-            let ciphertext = mimir_core::crypto::Ciphertext {
-                data: text_enc,
-                nonce: vec![], // Note: In the new schema, we're not storing nonce separately
-            };
+            // Deserialize and decrypt content
+            let ciphertext: mimir_core::crypto::Ciphertext = serde_json::from_slice(&text_enc)
+                .map_err(|e| mimir_core::MimirError::Database(anyhow::anyhow!("Failed to deserialize ciphertext: {}", e)))?;
             let plaintext_bytes = self.crypto_manager.decrypt(&class_id, &ciphertext)?;
             let content = String::from_utf8(plaintext_bytes)
                 .map_err(|e| mimir_core::MimirError::Database(anyhow::anyhow!("Invalid UTF-8: {}", e)))?;
@@ -358,17 +385,23 @@ mod tests {
     use mimir_core::MemoryClass;
     use serial_test::serial;
 
-    fn create_test_database() -> Database {
+    fn create_test_database() -> (Database, tempfile::TempDir) {
         let temp_dir = create_temp_dir();
         let db_path = get_test_db_path(&temp_dir);
         let keyset_path = temp_dir.path().join("keyset.json");
         
-        // Use the real CryptoManager to create a proper keyset file
-        let _crypto_manager = mimir_core::crypto::CryptoManager::new(&keyset_path)
+        // Ensure the parent directory exists
+        if let Some(parent) = keyset_path.parent() {
+            std::fs::create_dir_all(parent).expect("Failed to create keyset directory");
+        }
+        
+        // Use password-based CryptoManager to create a proper keyset file
+        let _crypto_manager = mimir_core::crypto::CryptoManager::with_password(&keyset_path, "test-password")
             .expect("Failed to create test crypto manager");
 
-        Database::new(db_path, keyset_path)
-            .expect("Failed to create test database")
+        let db = Database::new(db_path, keyset_path)
+            .expect("Failed to create test database");
+        (db, temp_dir)
     }
 
     #[test]
@@ -377,8 +410,13 @@ mod tests {
         let db_path = get_test_db_path(&temp_dir);
         let keyset_path = temp_dir.path().join("keyset.json");
         
-        // Use the real CryptoManager to create a proper keyset file
-        let _crypto_manager = mimir_core::crypto::CryptoManager::new(&keyset_path)
+        // Ensure the parent directory exists
+        if let Some(parent) = keyset_path.parent() {
+            std::fs::create_dir_all(parent).expect("Failed to create keyset directory");
+        }
+        
+        // Use password-based CryptoManager to create a proper keyset file
+        let _crypto_manager = mimir_core::crypto::CryptoManager::with_password(&keyset_path, "test-password")
             .expect("Failed to create test crypto manager");
 
         let result = Database::new(db_path, keyset_path);
@@ -390,8 +428,13 @@ mod tests {
         let temp_dir = create_temp_dir();
         let keyset_path = temp_dir.path().join("keyset.json");
         
-        // Use the real CryptoManager to create a proper keyset file
-        let _crypto_manager = mimir_core::crypto::CryptoManager::new(&keyset_path)
+        // Ensure the parent directory exists
+        if let Some(parent) = keyset_path.parent() {
+            std::fs::create_dir_all(parent).expect("Failed to create keyset directory");
+        }
+        
+        // Use password-based CryptoManager to create a proper keyset file
+        let _crypto_manager = mimir_core::crypto::CryptoManager::with_password(&keyset_path, "test-password")
             .expect("Failed to create test crypto manager");
 
         let test_cases = vec!["test1.db", "subdir/test2.db", "memory_vault.sqlite"];
@@ -413,7 +456,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_store_and_retrieve_memory() {
-        let mut db = create_test_database();
+        let (mut db, _temp_dir) = create_test_database();
 
         let memory = MemoryBuilder::new()
             .with_content("Test memory content")
@@ -436,7 +479,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_store_multiple_memories() {
-        let mut db = create_test_database();
+        let (mut db, _temp_dir) = create_test_database();
 
         let memories = generate_test_memories(5);
 
@@ -457,7 +500,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_get_memories_by_class() {
-        let mut db = create_test_database();
+        let (mut db, _temp_dir) = create_test_database();
 
         // Store memories in different classes
         let personal_memory = MemoryBuilder::new()
@@ -485,7 +528,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_get_last_memories() {
-        let mut db = create_test_database();
+        let (mut db, _temp_dir) = create_test_database();
 
         // Store multiple memories
         for i in 0..10 {
@@ -503,7 +546,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_delete_memory() {
-        let mut db = create_test_database();
+        let (mut db, _temp_dir) = create_test_database();
 
         let memory = MemoryBuilder::new()
             .with_content("Memory to delete")
@@ -528,7 +571,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_concurrent_operations() {
-        let mut db = create_test_database();
+        let (mut db, _temp_dir) = create_test_database();
 
         let memory1 = MemoryBuilder::new()
             .with_content("Concurrent memory 1")
@@ -560,8 +603,13 @@ mod tests {
 
         let keyset_path = temp_dir1.path().join("keyset.json");
         
-        // Use the real CryptoManager to create a proper keyset file
-        let _crypto_manager = mimir_core::crypto::CryptoManager::new(&keyset_path)
+        // Ensure the parent directory exists
+        if let Some(parent) = keyset_path.parent() {
+            std::fs::create_dir_all(parent).expect("Failed to create keyset directory");
+        }
+        
+        // Use password-based CryptoManager to create a proper keyset file
+        let _crypto_manager = mimir_core::crypto::CryptoManager::with_password(&keyset_path, "test-password")
             .expect("Failed to create test crypto manager");
 
         let mut db1 = Database::new(&db_path1, &keyset_path).unwrap();
@@ -576,19 +624,42 @@ mod tests {
     }
 
     #[test]
-    fn test_database_error_handling() {
-        // Test invalid paths
+    fn test_database_error_handling_invalid_db_path() {
+        use mimir_core::test_utils::env::create_temp_dir;
+        let temp_dir = create_temp_dir();
+        let db_path = get_test_db_path(&temp_dir);
+        let db_path_str = db_path.to_str().unwrap();
+        let keyset_path = temp_dir.path().join("keyset.json");
+        let keyset_path_str = keyset_path.to_str().unwrap();
+        let _crypto_manager = mimir_core::crypto::CryptoManager::with_password(&keyset_path, "test-password")
+            .expect("Failed to create test crypto manager");
         let invalid_paths = vec![
             "",                       // Empty path
             "/root/no_permission.db", // Permission denied path
         ];
-
-        let keyset_path = "non_existent_keyset.json";
-
         for path in invalid_paths {
-            let result = Database::new(path, keyset_path);
-            // These should fail with invalid paths
-            assert!(result.is_err());
+            let result = Database::new(path, keyset_path_str);
+            assert!(result.is_err(), "Should fail for invalid db path: {}", path);
+        }
+        // Also test with a valid db path but invalid keyset path
+        let result = Database::new(db_path_str, "");
+        assert!(result.is_err(), "Should fail for invalid keyset path");
+    }
+
+    #[test]
+    fn test_database_error_handling_invalid_keyset_path() {
+        use mimir_core::test_utils::env::create_temp_dir;
+        let temp_dir = create_temp_dir();
+        let db_path = temp_dir.path().join("test.db");
+        let db_path_str = db_path.to_str().unwrap();
+        let invalid_keyset_paths = vec![
+            "/non/existent/keyset.json",  // Absolute path that doesn't exist
+            "/tmp/non_existent_keyset.json", // Another absolute path
+            "",  // Empty path
+        ];
+        for keyset_path in invalid_keyset_paths {
+            let result = Database::new(db_path_str, keyset_path);
+            assert!(result.is_err(), "Should fail for invalid keyset path: {}", keyset_path);
         }
     }
 
@@ -598,8 +669,13 @@ mod tests {
         let db_path = get_test_db_path(&temp_dir);
         let keyset_path = temp_dir.path().join("keyset.json");
 
+        // Ensure the parent directory exists
+        if let Some(parent) = keyset_path.parent() {
+            std::fs::create_dir_all(parent).expect("Failed to create keyset directory");
+        }
+
         // Test that the CryptoManager can be created and used properly
-        let crypto_manager = mimir_core::crypto::CryptoManager::new(&keyset_path);
+        let crypto_manager = mimir_core::crypto::CryptoManager::with_password(&keyset_path, "test-password");
         assert!(crypto_manager.is_ok(), "Failed to create crypto manager");
 
         // Test that we can create a database with the crypto manager
@@ -609,7 +685,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_memory_data_integrity() {
-        let mut db = create_test_database();
+        let (mut db, _temp_dir) = create_test_database();
 
         let original_memory = MemoryBuilder::new()
             .with_content("Data integrity test content")
@@ -634,7 +710,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_large_content_handling() {
-        let mut db = create_test_database();
+        let (mut db, _temp_dir) = create_test_database();
 
         // Test with large content (simulating edge cases)
         let large_content = "x".repeat(10_000); // 10KB content
@@ -651,7 +727,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_special_characters_in_content() {
-        let mut db = create_test_database();
+        let (mut db, _temp_dir) = create_test_database();
 
         let special_contents = vec![
             "🧠 Memory with emojis 🔒",
@@ -676,7 +752,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_transaction_support() {
-        let mut db = create_test_database();
+        let (mut db, _temp_dir) = create_test_database();
 
         // Test transaction support
         let transaction = db.transaction();

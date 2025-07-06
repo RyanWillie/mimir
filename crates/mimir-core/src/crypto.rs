@@ -11,7 +11,7 @@ use chacha20poly1305::{
     aead::{Aead, AeadCore, KeyInit, OsRng},
     XChaCha20Poly1305, XNonce,
 };
-use ring::{hmac, rand::{SecureRandom, SystemRandom}};
+use ring::{hmac, rand::{SecureRandom, SystemRandom}, pbkdf2};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::fs;
@@ -27,20 +27,26 @@ pub const CLASS_KEY_LEN: usize = 32;
 /// Length of XChaCha20-Poly1305 nonce (24 bytes)
 pub const NONCE_LEN: usize = 24;
 
+/// Length of salt for password derivation (32 bytes)
+pub const SALT_LEN: usize = 32;
+
+/// Number of PBKDF2 iterations for password derivation
+pub const PBKDF2_ITERATIONS: u32 = 100_000;
+
 /// Service name for OS keychain storage
 pub const KEYCHAIN_SERVICE: &str = "com.mimir.memory-vault";
 
 /// Root key identifier in keychain
 pub const ROOT_KEY_ID: &str = "mimir-root-key";
 
-/// Root Key for the device, stored in OS keychain
+/// Root Key for the device, stored in OS keychain or derived from password
 #[derive(ZeroizeOnDrop, Zeroize)]
 pub struct RootKey {
     key: [u8; ROOT_KEY_LEN],
 }
 
 impl RootKey {
-    /// Generate a new root key
+    /// Generate a new random root key
     pub fn new() -> Result<Self> {
         let rng = SystemRandom::new();
         let mut key = [0u8; ROOT_KEY_LEN];
@@ -48,6 +54,34 @@ impl RootKey {
             .map_err(|_| MimirError::Encryption("Failed to generate root key".to_string()))?;
         
         Ok(RootKey { key })
+    }
+
+    /// Create a new root key from a password
+    pub fn from_password(password: &str, salt: &[u8; SALT_LEN]) -> Result<Self> {
+        if password.is_empty() {
+            return Err(MimirError::Encryption("Password cannot be empty".to_string()));
+        }
+        
+        let mut key = [0u8; ROOT_KEY_LEN];
+        pbkdf2::derive(
+            pbkdf2::PBKDF2_HMAC_SHA256,
+            std::num::NonZeroU32::new(PBKDF2_ITERATIONS).unwrap(),
+            salt,
+            password.as_bytes(),
+            &mut key,
+        );
+        
+        Ok(RootKey { key })
+    }
+
+    /// Generate a new random salt for password derivation
+    pub fn generate_salt() -> Result<[u8; SALT_LEN]> {
+        let rng = SystemRandom::new();
+        let mut salt = [0u8; SALT_LEN];
+        rng.fill(&mut salt)
+            .map_err(|_| MimirError::Encryption("Failed to generate salt".to_string()))?;
+        
+        Ok(salt)
     }
 
     /// Load root key from OS keychain
@@ -201,6 +235,8 @@ pub struct Ciphertext {
 pub struct Keyset {
     /// Version of the keyset format
     pub version: u32,
+    /// Salt for password derivation (if using password-based encryption)
+    pub salt: Option<[u8; SALT_LEN]>,
     /// Encrypted class keys (encrypted with root key)
     pub class_keys: HashMap<String, Ciphertext>,
     /// Timestamp of last update
@@ -216,7 +252,7 @@ pub struct CryptoManager {
 }
 
 impl CryptoManager {
-    /// Initialize crypto manager
+    /// Initialize crypto manager with OS keychain
     pub fn new<P: AsRef<Path>>(keyset_path: P) -> Result<Self> {
         let keyset_path = keyset_path.as_ref().to_path_buf();
         
@@ -241,6 +277,27 @@ impl CryptoManager {
             crypto_manager.load_keyset()?;
         } else {
             crypto_manager.create_keyset()?;
+        }
+        
+        Ok(crypto_manager)
+    }
+
+    /// Initialize crypto manager with password-based encryption
+    pub fn with_password<P: AsRef<Path>>(keyset_path: P, password: &str) -> Result<Self> {
+        let keyset_path = keyset_path.as_ref().to_path_buf();
+        
+        let mut crypto_manager = CryptoManager {
+            root_key: RootKey::new()?, // Will be set properly below
+            class_keys: HashMap::new(),
+            purged_classes: std::collections::HashSet::new(),
+            keyset_path,
+        };
+        
+        // Load existing keyset or create new one
+        if crypto_manager.keyset_path.exists() {
+            crypto_manager.load_keyset_with_password(password)?;
+        } else {
+            crypto_manager.create_keyset_with_password(password)?;
         }
         
         Ok(crypto_manager)
@@ -344,23 +401,48 @@ impl CryptoManager {
 
     /// Save keyset to disk
     fn save_keyset(&self) -> Result<()> {
+        // Check if this is a password-based keyset by reading the existing keyset
+        let salt = if self.keyset_path.exists() {
+            let keyset_data = fs::read(&self.keyset_path)
+                .map_err(|e| MimirError::Encryption(format!("Failed to read keyset: {}", e)))?;
+            
+            let keyset: Keyset = serde_json::from_slice(&keyset_data)
+                .map_err(|e| MimirError::Encryption(format!("Failed to parse keyset: {}", e)))?;
+            
+            keyset.salt
+        } else {
+            None
+        };
+        
         let mut encrypted_class_keys = HashMap::new();
         
-        // Encrypt class keys with root key
-        for (class, class_key) in &self.class_keys {
-            let root_derived_key = self.root_key.derive_class_key(class)?;
-            let encrypted_key = root_derived_key.encrypt(class_key.as_bytes())?;
-            encrypted_class_keys.insert(class.clone(), encrypted_key);
+        // For password-based keysets, we don't store encrypted class keys since they're derived
+        // For keychain-based keysets, we encrypt and store the class keys
+        if salt.is_none() {
+            // Encrypt class keys with root key (keychain-based)
+            for (class, class_key) in &self.class_keys {
+                let root_derived_key = self.root_key.derive_class_key(class)?;
+                let encrypted_key = root_derived_key.encrypt(class_key.as_bytes())?;
+                encrypted_class_keys.insert(class.clone(), encrypted_key);
+            }
         }
+        // For password-based keysets, class_keys remains empty since keys are derived on-demand
         
         let keyset = Keyset {
             version: 1,
+            salt,
             class_keys: encrypted_class_keys,
             updated_at: chrono::Utc::now(),
         };
         
         let keyset_data = serde_json::to_vec_pretty(&keyset)
             .map_err(|e| MimirError::Encryption(format!("Failed to serialize keyset: {}", e)))?;
+        
+        // Ensure the parent directory exists before writing
+        if let Some(parent) = self.keyset_path.parent() {
+            fs::create_dir_all(parent)
+                .map_err(|e| MimirError::Encryption(format!("Failed to create keyset directory: {}", e)))?;
+        }
         
         fs::write(&self.keyset_path, keyset_data)
             .map_err(|e| MimirError::Encryption(format!("Failed to write keyset: {}", e)))?;
@@ -372,6 +454,7 @@ impl CryptoManager {
     fn create_keyset(&mut self) -> Result<()> {
         let keyset = Keyset {
             version: 1,
+            salt: None, // No salt for keychain-based encryption
             class_keys: HashMap::new(),
             updated_at: chrono::Utc::now(),
         };
@@ -379,9 +462,64 @@ impl CryptoManager {
         let keyset_data = serde_json::to_vec_pretty(&keyset)
             .map_err(|e| MimirError::Encryption(format!("Failed to serialize keyset: {}", e)))?;
         
+        // Ensure the parent directory exists before writing
+        if let Some(parent) = self.keyset_path.parent() {
+            fs::create_dir_all(parent)
+                .map_err(|e| MimirError::Encryption(format!("Failed to create keyset directory: {}", e)))?;
+        }
+        
         fs::write(&self.keyset_path, keyset_data)
             .map_err(|e| MimirError::Encryption(format!("Failed to write keyset: {}", e)))?;
         
+        Ok(())
+    }
+
+    /// Create initial keyset with password-based encryption
+    fn create_keyset_with_password(&mut self, password: &str) -> Result<()> {
+        // Generate salt and derive root key from password
+        let salt = RootKey::generate_salt()?;
+        self.root_key = RootKey::from_password(password, &salt)?;
+        
+        let keyset = Keyset {
+            version: 1,
+            salt: Some(salt),
+            class_keys: HashMap::new(),
+            updated_at: chrono::Utc::now(),
+        };
+        
+        let keyset_data = serde_json::to_vec_pretty(&keyset)
+            .map_err(|e| MimirError::Encryption(format!("Failed to serialize keyset: {}", e)))?;
+        
+        // Ensure the parent directory exists before writing
+        if let Some(parent) = self.keyset_path.parent() {
+            fs::create_dir_all(parent)
+                .map_err(|e| MimirError::Encryption(format!("Failed to create keyset directory: {}", e)))?;
+        }
+        
+        fs::write(&self.keyset_path, keyset_data)
+            .map_err(|e| MimirError::Encryption(format!("Failed to write keyset: {}", e)))?;
+        
+        Ok(())
+    }
+
+    /// Load keyset with password-based decryption
+    fn load_keyset_with_password(&mut self, password: &str) -> Result<()> {
+        let keyset_data = fs::read(&self.keyset_path)
+            .map_err(|e| MimirError::Encryption(format!("Failed to read keyset: {}", e)))?;
+        
+        let keyset: Keyset = serde_json::from_slice(&keyset_data)
+            .map_err(|e| MimirError::Encryption(format!("Failed to parse keyset: {}", e)))?;
+        
+        // Check if this is a password-based keyset
+        let salt = keyset.salt.ok_or_else(|| {
+            MimirError::Encryption("Keyset is not password-based. Use keychain-based initialization.".to_string())
+        })?;
+        
+        // Derive root key from password and salt
+        self.root_key = RootKey::from_password(password, &salt)?;
+        
+        // For password-based keysets, class keys are derived from the root key, not stored encrypted
+        // So we don't need to decrypt them - they'll be derived on-demand when needed
         Ok(())
     }
 }
@@ -475,5 +613,106 @@ mod tests {
         
         // Should not be able to decrypt anymore
         assert!(!crypto_manager.class_keys.contains_key("personal"));
+    }
+
+    #[test]
+    fn test_password_based_encryption() {
+        let temp_dir = TempDir::new().unwrap();
+        let keyset_path = temp_dir.path().join("keyset.json");
+        
+        let password = "my-secure-password-123";
+        let test_data = "Sensitive information encrypted with password";
+        
+        // Create crypto manager with password
+        let mut crypto_manager = CryptoManager::with_password(&keyset_path, password).unwrap();
+        
+        // Encrypt data
+        let ciphertext = crypto_manager.encrypt("personal", test_data.as_bytes()).unwrap();
+        
+        // Verify ciphertext is different from plaintext
+        assert_ne!(ciphertext.data, test_data.as_bytes());
+        
+        // Decrypt data
+        let decrypted = crypto_manager.decrypt("personal", &ciphertext).unwrap();
+        let decrypted_str = String::from_utf8(decrypted).unwrap();
+        
+        // Verify round-trip integrity
+        assert_eq!(decrypted_str, test_data);
+    }
+
+    #[test]
+    fn test_password_based_persistence() {
+        let temp_dir = TempDir::new().unwrap();
+        let keyset_path = temp_dir.path().join("keyset.json");
+        
+        let password = "another-secure-password";
+        let test_data = "Data that should persist across sessions";
+        
+        // Create first manager and encrypt data
+        let ciphertext = {
+            let mut crypto_manager = CryptoManager::with_password(&keyset_path, password).unwrap();
+            crypto_manager.encrypt("work", test_data.as_bytes()).unwrap()
+        };
+        
+        // Create second manager and decrypt data
+        {
+            let mut crypto_manager = CryptoManager::with_password(&keyset_path, password).unwrap();
+            let decrypted = crypto_manager.decrypt("work", &ciphertext).unwrap();
+            assert_eq!(String::from_utf8(decrypted).unwrap(), test_data);
+        }
+        
+        // Verify keyset file exists and contains salt
+        assert!(keyset_path.exists());
+        let keyset_data = fs::read(&keyset_path).unwrap();
+        let keyset: Keyset = serde_json::from_slice(&keyset_data).unwrap();
+        assert!(keyset.salt.is_some());
+    }
+
+    #[test]
+    fn test_password_validation() {
+        let temp_dir = TempDir::new().unwrap();
+        let keyset_path = temp_dir.path().join("keyset.json");
+        
+        // Empty password should fail
+        let result = CryptoManager::with_password(&keyset_path, "");
+        assert!(result.is_err());
+        
+        // Valid password should work
+        let result = CryptoManager::with_password(&keyset_path, "valid-password");
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn test_salt_generation() {
+        let salt1 = RootKey::generate_salt().unwrap();
+        let salt2 = RootKey::generate_salt().unwrap();
+        
+        // Salts should be different
+        assert_ne!(salt1, salt2);
+        
+        // Salts should be correct length
+        assert_eq!(salt1.len(), SALT_LEN);
+        assert_eq!(salt2.len(), SALT_LEN);
+    }
+
+    #[test]
+    fn test_password_key_derivation() {
+        let password = "test-password";
+        let salt = RootKey::generate_salt().unwrap();
+        
+        let key1 = RootKey::from_password(password, &salt).unwrap();
+        let key2 = RootKey::from_password(password, &salt).unwrap();
+        
+        // Same password and salt should produce same key
+        assert_eq!(key1.key, key2.key);
+        
+        // Different password should produce different key
+        let key3 = RootKey::from_password("different-password", &salt).unwrap();
+        assert_ne!(key1.key, key3.key);
+        
+        // Different salt should produce different key
+        let salt2 = RootKey::generate_salt().unwrap();
+        let key4 = RootKey::from_password(password, &salt2).unwrap();
+        assert_ne!(key1.key, key4.key);
     }
 } 

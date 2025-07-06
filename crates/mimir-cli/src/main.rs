@@ -20,6 +20,9 @@ enum Commands {
         /// Vault directory path
         #[arg(short, long)]
         path: Option<String>,
+        /// Use password-based encryption instead of OS keychain
+        #[arg(long)]
+        password: bool,
     },
     /// Show vault status
     Status,
@@ -69,7 +72,7 @@ async fn main() -> Result<()> {
     let cli = Cli::parse();
 
     match cli.command {
-        Commands::Init { path } => {
+        Commands::Init { path, password } => {
             let vault_dir = match path {
                 Some(p) => std::path::PathBuf::from(p),
                 None => mimir_core::config::get_default_app_dir(),
@@ -82,9 +85,26 @@ async fn main() -> Result<()> {
             
             // Initialize crypto manager
             let keyset_path = vault_dir.join("keyset.json");
-            let _crypto_manager = mimir_core::crypto::CryptoManager::new(&keyset_path)?;
             
-            println!("✅ Memory vault initialized at {}", vault_dir.display());
+            if password {
+                println!("🔐 Using password-based encryption");
+                println!("Enter a strong password for your memory vault:");
+                
+                let mut password_input = String::new();
+                std::io::stdin().read_line(&mut password_input)?;
+                let password = password_input.trim();
+                
+                if password.is_empty() {
+                    return Err(mimir_core::MimirError::Config("Password cannot be empty".to_string()));
+                }
+                
+                let _crypto_manager = mimir_core::crypto::CryptoManager::with_password(&keyset_path, password)?;
+                println!("✅ Memory vault initialized with password-based encryption at {}", vault_dir.display());
+            } else {
+                println!("🔑 Using OS keychain for encryption");
+                let _crypto_manager = mimir_core::crypto::CryptoManager::new(&keyset_path)?;
+                println!("✅ Memory vault initialized with OS keychain at {}", vault_dir.display());
+            }
         }
         Commands::Status => {
             info!("Checking vault status");

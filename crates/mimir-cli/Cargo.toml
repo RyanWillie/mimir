@@ -8,7 +8,7 @@ authors.workspace = true
 description = "Command-line interface for Mimir AI Memory Vault"
 
 [[bin]]
-name = "mimir"
+name = "mimir-cli"
 path = "src/main.rs"
 
 [dependencies]

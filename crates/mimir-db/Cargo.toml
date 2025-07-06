@@ -17,6 +17,7 @@ uuid.workspace = true
 chrono.workspace = true
 rusqlite = { workspace = true, features = ["sqlcipher"] }
 ring.workspace = true
+hex.workspace = true
 
 [dev-dependencies]
 mimir-core = { path = "../mimir-core", features = ["test-utils"] }

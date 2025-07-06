@@ -109,8 +109,12 @@ impl RootKey {
         let db_context = b"mimir-database";
         let signature = hmac::sign(&key, db_context);
         
-        // Return hex-encoded key for SQLCipher
-        Ok(hex::encode(signature.as_ref()))
+        // SQLCipher expects a 32-byte key, so take the first 32 bytes of the HMAC signature
+        let signature_bytes = signature.as_ref();
+        let db_key_bytes = &signature_bytes[..32];
+        
+        // Return as a passphrase for SQLCipher (it will hash it internally)
+        Ok(String::from_utf8_lossy(db_key_bytes).to_string())
     }
 
     /// Rotate root key - generates new key and returns old one for re-encryption
@@ -392,6 +396,15 @@ mod tests {
         let root_key = RootKey::new().unwrap();
         // Just verify it can be created
         drop(root_key);
+    }
+
+    #[test]
+    fn test_db_key_length() {
+        let root_key = RootKey::new().unwrap();
+        let db_key = root_key.derive_db_key().unwrap();
+        println!("DB key length: {}, key: {:?}", db_key.len(), db_key);
+        // Should be reasonable length for a passphrase
+        assert!(db_key.len() > 0);
     }
 
     #[test]

@@ -10,7 +10,6 @@ members = [
     "crates/mimir-cli",
     "crates/mimir-tray",
     "crates/mimir-core",
-    "bindings/python",
     # "bindings/nodejs",  # Temporarily disabled until napi issues are resolved
     "bindings/wasm"
 ]

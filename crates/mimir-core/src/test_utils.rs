@@ -273,8 +273,6 @@ pub mod generators {
 #[cfg(feature = "test-utils")]
 pub mod env {
     use std::path::PathBuf;
-    
-    #[cfg(feature = "test-utils")]
     use tempfile;
     
     /// Create a temporary directory for test data

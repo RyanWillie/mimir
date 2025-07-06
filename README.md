@@ -47,35 +47,6 @@ mimir status
 
 ### Usage Examples
 
-#### Python
-
-```python
-from mimir import Memory
-
-# Connect to local daemon
-mem = Memory(app_id="my-chatbot", allow=["work", "personal"])
-
-# Store a memory
-mem.ingest("I'm allergic to penicillin")
-
-# Retrieve relevant context
-context = mem.retrieve("medical allergies", top_k=3)
-reply = llm.chat(context + user_input)
-```
-
-#### Node.js
-
-```javascript
-import { Memory } from "mimir";
-
-const mem = new Memory({ 
-  appId: "my-assistant",
-  allow: ["personal"] 
-});
-
-await mem.ingest("My favorite coffee is Ethiopian single-origin");
-const context = await mem.retrieve("coffee preferences");
-```
 
 #### REST API (MCP)
 
@@ -115,11 +86,10 @@ curl -X POST http://localhost:8100/memories \
 
 | Threat | Mitigation |
 |--------|------------|
-| Cloud breach | Client-side XChaCha20; server never sees keys |
+| Data breach | Client-side XChaCha20; server never sees keys |
 | Rogue app access | ACL filters + per-class encryption |
 | Model inversion | PII redaction before LLM processing |
 | Data retention | TTL jobs delete/summarize aged memories |
-| Supply chain | Reproducible builds, signed releases |
 
 ### Memory Classification
 
@@ -196,14 +166,12 @@ See [ROADMAP.md](docs/ROADMAP.md) for detailed timeline.
 
 ## 🤝 Community
 
-- **Discord**: [Join our community](https://discord.gg/mimir)
-- **Issues**: [GitHub Issues](https://github.com/your-org/mimir/issues)
-- **Discussions**: [GitHub Discussions](https://github.com/your-org/mimir/discussions)
+- **Issues**: [GitHub Issues](https://github.com/ryanwillie/mimir/issues)
+- **Discussions**: [GitHub Discussions](https://github.com/ryanwillie/mimir/discussions)
 - **Security**: See [SECURITY.md](SECURITY.md) for reporting vulnerabilities
 
 ## 🙏 Acknowledgments
 
-- Inspired by privacy-first principles from [Solid](https://solidproject.org/)
 - Vector search powered by [HNSW](https://github.com/nmslib/hnswlib)
 - Built with love using [Rust](https://rust-lang.org/) 🦀
 

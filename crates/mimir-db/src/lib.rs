@@ -38,11 +38,25 @@ impl Database {
                 .map_err(|e| mimir_core::MimirError::Database(anyhow::anyhow!("Failed to create database directory: {}", e)))?;
         }
         
-        // Create an unencrypted database with explicit flags
+        // Get database key for SQLCipher from crypto manager
+        let db_key = crypto_manager.get_db_key()?;
+        
+        // Create an encrypted database with SQLCipher
         let conn = Connection::open_with_flags(
             db_path,
             rusqlite::OpenFlags::SQLITE_OPEN_READ_WRITE | rusqlite::OpenFlags::SQLITE_OPEN_CREATE
         ).map_err(|e| mimir_core::MimirError::Database(anyhow::anyhow!("Failed to open database: {}", e)))?;
+        
+        // Set the SQLCipher key using PRAGMA - SQLCipher returns results from PRAGMA commands
+        let pragma_sql = format!("PRAGMA key = '{}'", db_key);
+        conn.query_row(&pragma_sql, [], |_| Ok(()))
+            .map_err(|e| mimir_core::MimirError::Database(anyhow::anyhow!("Failed to set SQLCipher key: {}", e)))?;
+        
+        // Test that the key is correct by executing a simple query
+        conn.query_row("SELECT count(*) FROM sqlite_master", [], |row| {
+            let count: i64 = row.get(0)?;
+            Ok(count)
+        }).map_err(|e| mimir_core::MimirError::Database(anyhow::anyhow!("Failed to verify SQLCipher key: {}", e)))?;
         
         // Test write access by creating a simple table
         conn.execute("CREATE TABLE IF NOT EXISTS test_write (id INTEGER PRIMARY KEY)", [])
@@ -87,7 +101,7 @@ impl Database {
         // Determine class_id string
         let class_id = match &memory.class {
             MemoryClass::Personal => "personal",
-            MemoryClass::Work => "work", 
+            MemoryClass::Work => "work",
             MemoryClass::Health => "health",
             MemoryClass::Financial => "financial",
             MemoryClass::Other(s) => s,

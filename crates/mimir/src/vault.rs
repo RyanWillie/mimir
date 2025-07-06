@@ -1,87 +1,103 @@
 //! Vault management - Status checking and auto-initialization
 
-use mimir_core::{config::MimirConfig, crypto::CryptoManager, Result};
+use mimir_core::{Config, crypto::CryptoManager, Result};
 
 use tracing::{info, warn, error};
+
+/// Vault status enumeration
+#[derive(Debug, Clone, PartialEq)]
+pub enum VaultStatusEnum {
+    /// Vault is fully initialized and ready
+    Ready,
+    /// Vault is not initialized at all
+    NotInitialized,
+    /// Keyset file is missing
+    MissingKeyset,
+    /// Database file is missing
+    MissingDatabase,
+}
 
 /// Vault status information
 #[derive(Debug, Clone)]
 pub struct VaultStatus {
-    pub initialized: bool,
-    pub app_dir_exists: bool,
-    pub keyset_exists: bool,
-    pub database_exists: bool,
-    pub crypto_ready: bool,
-    pub app_dir_path: String,
-    pub keyset_path: String,
-    pub database_path: String,
+    pub status: VaultStatusEnum,
+    pub vault_path: std::path::PathBuf,
+    pub keyset_path: std::path::PathBuf,
+    pub app_dir: std::path::PathBuf,
 }
 
 impl VaultStatus {
     /// Create a new vault status
-    pub fn new(config: &MimirConfig) -> Self {
-        let app_dir = config.storage.vault_path.parent()
+    pub fn new(config: &Config) -> Self {
+        let app_dir = config.get_vault_path().parent()
             .unwrap_or_else(|| std::path::Path::new("."));
-        let keyset_path = app_dir.join("keyset.json");
         
-        let app_dir_exists = app_dir.exists();
+        let vault_path = config.get_database_path();
+        let keyset_path = config.get_keyset_path();
+        
+        let vault_exists = vault_path.exists();
         let keyset_exists = keyset_path.exists();
-        let database_exists = config.storage.vault_path.exists();
+        let app_dir_exists = app_dir.exists();
         
-        // Try to initialize crypto to check if it's ready
-        let crypto_ready = CryptoManager::new(&keyset_path).is_ok();
-        
-        let initialized = app_dir_exists && keyset_exists && database_exists && crypto_ready;
+        let status = if !app_dir_exists {
+            VaultStatusEnum::NotInitialized
+        } else if !keyset_exists {
+            VaultStatusEnum::MissingKeyset
+        } else if !vault_exists {
+            VaultStatusEnum::MissingDatabase
+        } else {
+            VaultStatusEnum::Ready
+        };
         
         Self {
-            initialized,
-            app_dir_exists,
-            keyset_exists,
-            database_exists,
-            crypto_ready,
-            app_dir_path: app_dir.to_string_lossy().to_string(),
-            keyset_path: keyset_path.to_string_lossy().to_string(),
-            database_path: config.storage.vault_path.to_string_lossy().to_string(),
+            status,
+            vault_path,
+            keyset_path,
+            app_dir: app_dir.to_path_buf(),
         }
     }
     
     /// Check if vault is fully initialized and ready
     pub fn is_ready(&self) -> bool {
-        self.initialized
+        self.status == VaultStatusEnum::Ready
     }
     
     /// Get a human-readable status message
     pub fn status_message(&self) -> String {
-        if self.is_ready() {
-            "✅ Vault is initialized and ready".to_string()
-        } else {
-            let mut issues = Vec::new();
-            
-            if !self.app_dir_exists {
+        match self.status {
+            VaultStatusEnum::Ready => "✅ Vault is initialized and ready".to_string(),
+            VaultStatusEnum::NotInitialized => {
+                let mut issues = Vec::new();
                 issues.push("Application directory missing");
-            }
-            if !self.keyset_exists {
                 issues.push("Encryption keyset missing");
-            }
-            if !self.database_exists {
                 issues.push("Database file missing");
-            }
-            if !self.crypto_ready {
                 issues.push("Crypto system not ready");
+                format!("❌ Vault not initialized: {}", issues.join(", "))
             }
-            
-            format!("❌ Vault not initialized: {}", issues.join(", "))
+            VaultStatusEnum::MissingKeyset => {
+                let mut issues = Vec::new();
+                issues.push("Encryption keyset missing");
+                issues.push("Database file missing");
+                issues.push("Crypto system not ready");
+                format!("❌ Vault not initialized: {}", issues.join(", "))
+            }
+            VaultStatusEnum::MissingDatabase => {
+                let mut issues = Vec::new();
+                issues.push("Database file missing");
+                issues.push("Crypto system not ready");
+                format!("❌ Vault not initialized: {}", issues.join(", "))
+            }
         }
     }
 }
 
 /// Initialize the vault with all required components
-pub async fn initialize_vault(config: &MimirConfig) -> Result<()> {
+pub async fn initialize_vault(config: &Config) -> Result<()> {
     info!("Initializing Mimir vault...");
     
-    let app_dir = config.storage.vault_path.parent()
+    let app_dir = config.get_vault_path().parent()
         .unwrap_or_else(|| std::path::Path::new("."));
-    let keyset_path = app_dir.join("keyset.json");
+    let keyset_path = config.get_keyset_path();
     
     // Create application directory
     if !app_dir.exists() {
@@ -100,11 +116,11 @@ pub async fn initialize_vault(config: &MimirConfig) -> Result<()> {
         ))?;
     
     // Create database file (placeholder for now)
-    if !config.storage.vault_path.exists() {
-        info!("Creating database file: {}", config.storage.vault_path.display());
+    if !config.get_database_path().exists() {
+        info!("Creating database file: {}", config.get_database_path().display());
         // TODO: Initialize actual database when mimir-db is implemented
         // For now, just create an empty file as a placeholder
-        std::fs::write(&config.storage.vault_path, "")
+        std::fs::write(&config.get_database_path(), "")
             .map_err(|e| mimir_core::MimirError::Initialization(
                 format!("Failed to create database file: {}", e)
             ))?;
@@ -113,13 +129,13 @@ pub async fn initialize_vault(config: &MimirConfig) -> Result<()> {
     info!("✅ Vault initialized successfully");
     info!("  App directory: {}", app_dir.display());
     info!("  Keyset: {}", keyset_path.display());
-    info!("  Database: {}", config.storage.vault_path.display());
+    info!("  Database: {}", config.get_database_path().display());
     
     Ok(())
 }
 
 /// Ensure vault is initialized, auto-initialize if needed
-pub async fn ensure_vault_ready(config: &MimirConfig, auto_init: bool) -> Result<()> {
+pub async fn ensure_vault_ready(config: &Config, auto_init: bool) -> Result<()> {
     let status = VaultStatus::new(config);
     
     if status.is_ready() {
@@ -135,9 +151,9 @@ pub async fn ensure_vault_ready(config: &MimirConfig, auto_init: bool) -> Result
     }
     
     warn!("Vault not initialized, auto-initializing...");
-    warn!("  App directory: {}", status.app_dir_path);
-    warn!("  Keyset: {}", status.keyset_path);
-    warn!("  Database: {}", status.database_path);
+    warn!("  App directory: {}", status.app_dir.display());
+    warn!("  Keyset: {}", status.keyset_path.display());
+    warn!("  Database: {}", status.vault_path.display());
     
     initialize_vault(config).await?;
     
@@ -154,7 +170,7 @@ pub async fn ensure_vault_ready(config: &MimirConfig, auto_init: bool) -> Result
 }
 
 /// Check vault status and return detailed information
-pub fn check_vault_status(config: &MimirConfig) -> VaultStatus {
+pub fn check_vault_status(config: &Config) -> VaultStatus {
     VaultStatus::new(config)
 }
 
@@ -165,18 +181,18 @@ mod tests {
     
     #[test]
     fn test_vault_status_creation() {
-        let config = MimirConfig::default();
+        let config = Config::default();
         let status = VaultStatus::new(&config);
         
         // Should have all the expected fields
-        assert!(!status.app_dir_path.is_empty());
-        assert!(!status.keyset_path.is_empty());
-        assert!(!status.database_path.is_empty());
+        assert!(!status.app_dir.to_string_lossy().is_empty());
+        assert!(!status.keyset_path.to_string_lossy().is_empty());
+        assert!(!status.vault_path.to_string_lossy().is_empty());
     }
     
     #[test]
     fn test_vault_status_message() {
-        let config = MimirConfig::default();
+        let config = Config::default();
         let status = VaultStatus::new(&config);
         
         let message = status.status_message();
@@ -189,27 +205,27 @@ mod tests {
     #[tokio::test]
     async fn test_initialize_vault() {
         let temp_dir = TempDir::new().unwrap();
-        let mut config = MimirConfig::default();
-        config.storage.vault_path = temp_dir.path().join("vault.db");
+        let mut config = Config::default();
+        config.set_database_path(temp_dir.path().join("vault.db"));
         
         // Should succeed
         let result = initialize_vault(&config).await;
         assert!(result.is_ok());
         
         // Check that files were created
-        let app_dir = config.storage.vault_path.parent().unwrap();
-        let keyset_path = app_dir.join("keyset.json");
+        let app_dir = config.get_vault_path();
+        let keyset_path = config.get_keyset_path();
         
         assert!(app_dir.exists());
         assert!(keyset_path.exists());
-        assert!(config.storage.vault_path.exists());
+        assert!(config.get_database_path().exists());
     }
     
     #[tokio::test]
     async fn test_ensure_vault_ready_with_auto_init() {
         let temp_dir = TempDir::new().unwrap();
-        let mut config = MimirConfig::default();
-        config.storage.vault_path = temp_dir.path().join("vault.db");
+        let mut config = Config::default();
+        config.set_database_path(temp_dir.path().join("vault.db"));
         
         // Should auto-initialize when not ready
         let result = ensure_vault_ready(&config, true).await;
@@ -223,8 +239,8 @@ mod tests {
     #[tokio::test]
     async fn test_ensure_vault_ready_without_auto_init() {
         let temp_dir = TempDir::new().unwrap();
-        let mut config = MimirConfig::default();
-        config.storage.vault_path = temp_dir.path().join("vault.db");
+        let mut config = Config::default();
+        config.set_database_path(temp_dir.path().join("vault.db"));
         
         // Should fail when not ready and auto_init is false
         let result = ensure_vault_ready(&config, false).await;

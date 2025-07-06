@@ -12,7 +12,7 @@ members = [
     "crates/mimir-core",
     # "bindings/nodejs",  # Temporarily disabled until napi issues are resolved
     "bindings/wasm"
-]
+, "scripts"]
 
 [workspace.package]
 version = "0.1.0"
@@ -98,4 +98,5 @@ strip = true
 [profile.dev]
 opt-level = 0
 debug = true
-split-debuginfo = "unpacked" 
+split-debuginfo = "unpacked"
+ 

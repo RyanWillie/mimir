@@ -13,6 +13,7 @@ path = "src/main.rs"
 
 [dependencies]
 mimir-core = { path = "../mimir-core" }
+mimir-db = { path = "../mimir-db" }
 tokio.workspace = true
 clap.workspace = true
 anyhow.workspace = true

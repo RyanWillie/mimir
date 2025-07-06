@@ -1,10 +1,10 @@
 use axum::{routing::get, Router};
-use mimir_core::{config::MimirConfig, Result};
+use mimir_core::{Config, Result};
 use tokio::net::TcpListener;
 use tracing::info;
 
 /// Create the Axum application with all routes configured
-pub async fn create_app(_config: MimirConfig) -> Result<Router> {
+pub async fn create_app(_config: Config) -> Result<Router> {
     // Create a simple health check endpoint
     let app = Router::new()
         .route("/health", get(health_check))
@@ -14,7 +14,7 @@ pub async fn create_app(_config: MimirConfig) -> Result<Router> {
 }
 
 /// Start the Mimir server with the given configuration
-pub async fn start(config: MimirConfig) -> Result<()> {
+pub async fn start(config: Config) -> Result<()> {
     info!(
         "Starting Mimir server on {}:{}",
         config.server.host, config.server.port

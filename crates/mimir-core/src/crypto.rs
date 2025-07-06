@@ -151,6 +151,17 @@ impl RootKey {
         Ok(String::from_utf8_lossy(db_key_bytes).to_string())
     }
 
+    /// Derive SQLCipher database key as raw bytes from root key
+    pub fn derive_db_key_bytes(&self) -> [u8; 32] {
+        let key = hmac::Key::new(hmac::HMAC_SHA256, &self.key);
+        let db_context = b"mimir-database";
+        let signature = hmac::sign(&key, db_context);
+        let signature_bytes = signature.as_ref();
+        let mut db_key_bytes = [0u8; 32];
+        db_key_bytes.copy_from_slice(&signature_bytes[..32]);
+        db_key_bytes
+    }
+
     /// Rotate root key - generates new key and returns old one for re-encryption
     pub fn rotate(&mut self) -> Result<RootKey> {
         let old_key = RootKey { key: self.key };
@@ -306,6 +317,11 @@ impl CryptoManager {
     /// Get database key for SQLCipher
     pub fn get_db_key(&self) -> Result<String> {
         self.root_key.derive_db_key()
+    }
+
+    /// Get database key for SQLCipher as raw bytes
+    pub fn get_db_key_bytes(&self) -> [u8; 32] {
+        self.root_key.derive_db_key_bytes()
     }
 
     /// Encrypt plaintext for a specific class

@@ -11,35 +11,20 @@ pub struct Database {
 }
 
 impl Database {
-    /// Create a new encrypted database
-    pub fn new<P: AsRef<Path>>(db_path: P, keyset_path: P) -> Result<Self> {
+    /// Create a new encrypted database with an existing crypto manager
+    pub fn with_crypto_manager<P: AsRef<Path>>(db_path: P, crypto_manager: CryptoManager) -> Result<Self> {
         let db_path = db_path.as_ref();
-        let keyset_path = keyset_path.as_ref();
         
-        // Validate paths are not empty
+        // Validate path is not empty
         if db_path.to_string_lossy().is_empty() {
             return Err(mimir_core::MimirError::Database(anyhow::anyhow!("Database path cannot be empty")));
         }
-        if keyset_path.to_string_lossy().is_empty() {
-            return Err(mimir_core::MimirError::Database(anyhow::anyhow!("Keyset path cannot be empty")));
-        }
-        
-        // Validate keyset file exists
-        if !keyset_path.exists() {
-            return Err(mimir_core::MimirError::Database(anyhow::anyhow!("Keyset file does not exist: {:?}", keyset_path)));
-        }
-        
-        // Initialize crypto manager
-        let crypto_manager = CryptoManager::new(keyset_path)?;
         
         // Ensure the database directory exists
         if let Some(parent) = db_path.parent() {
             std::fs::create_dir_all(parent)
                 .map_err(|e| mimir_core::MimirError::Database(anyhow::anyhow!("Failed to create database directory: {}", e)))?;
         }
-        
-        // Get database key for SQLCipher from crypto manager
-        let db_key = crypto_manager.get_db_key()?;
         
         // Create an encrypted database with SQLCipher
         let conn = Connection::open_with_flags(
@@ -48,8 +33,10 @@ impl Database {
         ).map_err(|e| mimir_core::MimirError::Database(anyhow::anyhow!("Failed to open database: {}", e)))?;
         
         // Set the SQLCipher key using PRAGMA - SQLCipher returns results from PRAGMA commands
-        let pragma_sql = format!("PRAGMA key = '{}'", db_key);
-        conn.query_row(&pragma_sql, [], |_| Ok(()))
+        let db_key_bytes = crypto_manager.get_db_key_bytes();
+        let db_key_hex = hex::encode(db_key_bytes);
+        let pragma_sql = format!("PRAGMA key = \"x'{}'\"", db_key_hex);
+        conn.execute_batch(&pragma_sql)
             .map_err(|e| mimir_core::MimirError::Database(anyhow::anyhow!("Failed to set SQLCipher key: {}", e)))?;
         
         // Test that the key is correct by executing a simple query
@@ -94,6 +81,30 @@ impl Database {
             conn,
             crypto_manager,
         })
+    }
+
+    /// Create a new encrypted database (backward compatibility - uses keychain-based crypto)
+    pub fn new<P: AsRef<Path>>(db_path: P, keyset_path: P) -> Result<Self> {
+        let db_path = db_path.as_ref();
+        let keyset_path = keyset_path.as_ref();
+        
+        // Validate paths are not empty
+        if db_path.to_string_lossy().is_empty() {
+            return Err(mimir_core::MimirError::Database(anyhow::anyhow!("Database path cannot be empty")));
+        }
+        if keyset_path.to_string_lossy().is_empty() {
+            return Err(mimir_core::MimirError::Database(anyhow::anyhow!("Keyset path cannot be empty")));
+        }
+        
+        // Validate keyset file exists
+        if !keyset_path.exists() {
+            return Err(mimir_core::MimirError::Database(anyhow::anyhow!("Keyset file does not exist: {:?}", keyset_path)));
+        }
+        
+        // Initialize crypto manager (keychain-based)
+        let crypto_manager = CryptoManager::new(keyset_path)?;
+        
+        Self::with_crypto_manager(db_path, crypto_manager)
     }
 
     /// Store a memory in the database

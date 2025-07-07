@@ -28,6 +28,10 @@ chrono.workspace = true
 uuid.workspace = true
 schemars = { version = "0.8", features = ["derive"] }
 
+[build-dependencies]
+sha2 = "0.10"
+hex = "0.4"
+
 [dev-dependencies]
 mimir-core = { path = "../mimir-core", features = ["test-utils"] }
 tokio-test.workspace = true

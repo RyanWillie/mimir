@@ -162,6 +162,15 @@ impl RootKey {
         db_key_bytes
     }
 
+    /// Get root key bytes for cryptographic operations
+    /// 
+    /// This method provides safe access to the root key bytes for use in
+    /// cryptographic operations like HKDF derivation. The bytes are returned
+    /// as a reference to avoid unnecessary copying.
+    pub fn as_bytes(&self) -> &[u8; ROOT_KEY_LEN] {
+        &self.key
+    }
+
     /// Rotate root key - generates new key and returns old one for re-encryption
     pub fn rotate(&mut self) -> Result<RootKey> {
         let old_key = RootKey { key: self.key };

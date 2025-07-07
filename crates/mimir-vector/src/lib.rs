@@ -1,28 +1,166 @@
 //! Mimir Vector - High-performance vector similarity search
 
 use mimir_core::{MemoryId, Result};
+use std::path::Path;
+
+pub mod error;
+pub mod embedder;
+pub mod rotation;
+
+use error::{VectorError, VectorResult};
+use embedder::Embedder;
+use rotation::RotationMatrix;
 
 /// Vector store for embeddings and similarity search
+///
+/// If you use a rotation matrix for embedding security, the rotation matrix dimension
+/// must match the embedding dimension reported by the embedder. Always use
+/// `embedder.embedding_dimension()` when constructing a rotation matrix.
 pub struct VectorStore {
-    // TODO: Add vector index (HNSW, IVF, etc.)
+    embedder: Option<Embedder>,
+    rotation_matrix: Option<RotationMatrix>,
+    // TODO: Add HNSW index
 }
 
 impl VectorStore {
     /// Create a new vector store
     pub fn new() -> Self {
-        Self {}
+        Self {
+            embedder: None,
+            rotation_matrix: None,
+        }
     }
-
+    
+    /// Create a new vector store with embedding model
+    pub async fn with_embedder<P: AsRef<Path>>(model_path: P) -> VectorResult<Self> {
+        let embedder = Embedder::new(model_path).await?;
+        
+        Ok(Self {
+            embedder: Some(embedder),
+            rotation_matrix: None,
+        })
+    }
+    
+    /// Create a new vector store with default BGE model
+    pub async fn with_default_embedder() -> VectorResult<Self> {
+        let model_path = if let Ok(workspace_root) = std::env::var("CARGO_WORKSPACE_DIR") {
+            std::path::PathBuf::from(workspace_root)
+                .join("crates/mimir/assets/bge-small-en-int8/model-int8.onnx")
+        } else {
+            // Fallback: try to find it relative to current directory
+            let mut path = std::env::current_dir().unwrap();
+            // Go up to workspace root if we're in a crate directory
+            if path.ends_with("mimir-vector") {
+                path.pop(); // Remove mimir-vector
+                path.pop(); // Remove crates
+            }
+            path.join("crates/mimir/assets/bge-small-en-int8/model-int8.onnx")
+        };
+        Self::with_embedder(model_path).await
+    }
+    
+    /// Create a new vector store with embedding model and rotation matrix
+    pub async fn with_embedder_and_rotation<P: AsRef<Path>>(
+        model_path: P,
+        root_key: &mimir_core::crypto::RootKey,
+    ) -> VectorResult<Self> {
+        let embedder = Embedder::new(model_path).await?;
+        let embedding_dim = embedder.embedding_dimension();
+        let rotation_matrix = RotationMatrix::from_root_key(root_key, embedding_dim)?;
+        
+        Ok(Self {
+            embedder: Some(embedder),
+            rotation_matrix: Some(rotation_matrix),
+        })
+    }
+    
+    /// Create a new vector store with default BGE model and rotation matrix
+    pub async fn with_default_embedder_and_rotation(
+        root_key: &mimir_core::crypto::RootKey,
+    ) -> VectorResult<Self> {
+        let model_path = if let Ok(workspace_root) = std::env::var("CARGO_WORKSPACE_DIR") {
+            std::path::PathBuf::from(workspace_root)
+                .join("crates/mimir/assets/bge-small-en-int8/model-int8.onnx")
+        } else {
+            // Fallback: try to find it relative to current directory
+            let mut path = std::env::current_dir().unwrap();
+            // Go up to workspace root if we're in a crate directory
+            if path.ends_with("mimir-vector") {
+                path.pop(); // Remove mimir-vector
+                path.pop(); // Remove crates
+            }
+            path.join("crates/mimir/assets/bge-small-en-int8/model-int8.onnx")
+        };
+        Self::with_embedder_and_rotation(model_path, root_key).await
+    }
+    
     /// Add a vector to the store
     pub async fn add_vector(&mut self, _id: MemoryId, _embedding: Vec<f32>) -> Result<()> {
-        // TODO: Implement vector indexing
+        // TODO: Implement vector indexing with HNSW
         Ok(())
     }
-
+    
+    /// Add text to the store (converts to embedding first)
+    pub async fn add_text(&mut self, id: MemoryId, text: &str) -> VectorResult<()> {
+        let embedder = self.embedder.as_mut()
+            .ok_or_else(|| VectorError::InvalidInput("No embedder available".to_string()))?;
+        
+        // Generate embedding
+        let embedding = embedder.embed(text).await?;
+        
+        // Apply rotation if available
+        let final_embedding = if let Some(rotation_matrix) = &self.rotation_matrix {
+            rotation_matrix.rotate_vector(&embedding)?
+        } else {
+            embedding
+        };
+        
+        // Add to store
+        self.add_vector(id, final_embedding).await
+            .map_err(|e| VectorError::InvalidInput(format!("Failed to add vector: {}", e)))?;
+        
+        Ok(())
+    }
+    
     /// Search for similar vectors
     pub async fn search(&self, _query: Vec<f32>, _k: usize) -> Result<Vec<(MemoryId, f32)>> {
-        // TODO: Implement similarity search
+        // TODO: Implement similarity search with HNSW
         Ok(vec![])
+    }
+    
+    /// Search for similar text (converts to embedding first)
+    pub async fn search_text(&mut self, query: &str, k: usize) -> VectorResult<Vec<(MemoryId, f32)>> {
+        let embedder = self.embedder.as_mut()
+            .ok_or_else(|| VectorError::InvalidInput("No embedder available".to_string()))?;
+        
+        // Generate embedding for query
+        let embedding = embedder.embed(query).await?;
+        
+        // Apply rotation if available
+        let final_embedding = if let Some(rotation_matrix) = &self.rotation_matrix {
+            rotation_matrix.rotate_vector(&embedding)?
+        } else {
+            embedding
+        };
+        
+        // Search
+        self.search(final_embedding, k).await
+            .map_err(|e| VectorError::InvalidInput(format!("Search failed: {}", e)))
+    }
+    
+    /// Check if embedder is available
+    pub fn has_embedder(&self) -> bool {
+        self.embedder.is_some()
+    }
+    
+    /// Check if rotation matrix is available
+    pub fn has_rotation(&self) -> bool {
+        self.rotation_matrix.is_some()
+    }
+    
+    /// Get embedding dimension
+    pub fn embedding_dimension(&self) -> Option<usize> {
+        self.embedder.as_ref().map(|e| e.embedding_dimension())
     }
 }
 
@@ -38,6 +176,14 @@ mod tests {
         let store = VectorStore::new();
         // Just verify it can be created without panicking
         drop(store);
+    }
+    
+    #[test]
+    fn test_vector_store_without_embedder() {
+        let store = VectorStore::new();
+        assert!(!store.has_embedder());
+        assert!(!store.has_rotation());
+        assert_eq!(store.embedding_dimension(), None);
     }
 
     #[tokio::test]

@@ -45,14 +45,6 @@ impl Database {
             Ok(count)
         }).map_err(|e| mimir_core::MimirError::Database(anyhow::anyhow!("Failed to verify SQLCipher key: {}", e)))?;
         
-        // Test write access by creating a simple table
-        conn.execute("CREATE TABLE IF NOT EXISTS test_write (id INTEGER PRIMARY KEY)", [])
-            .map_err(|e| mimir_core::MimirError::Database(anyhow::anyhow!("Database is read-only: {}", e)))?;
-        
-        // Test inserting into the test table
-        conn.execute("INSERT OR REPLACE INTO test_write (id) VALUES (1)", [])
-            .map_err(|e| mimir_core::MimirError::Database(anyhow::anyhow!("Cannot write to database: {}", e)))?;
-        
         // Test inserting into memory table immediately after creation
         conn.execute(
             "CREATE TABLE IF NOT EXISTS memory (

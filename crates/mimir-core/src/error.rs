@@ -27,6 +27,9 @@ pub enum MimirError {
     #[error("Server error: {0}")]
     ServerError(String),
 
+    #[error("Initialization error: {0}")]
+    Initialization(String),
+
     #[error("IO error: {0}")]
     Io(#[from] std::io::Error),
 

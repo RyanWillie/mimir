@@ -273,9 +273,8 @@ pub mod generators {
 #[cfg(feature = "test-utils")]
 pub mod env {
     use std::path::PathBuf;
-    
-    #[cfg(feature = "test-utils")]
     use tempfile;
+    use crate::crypto::CryptoManager;
     
     /// Create a temporary directory for test data
     pub fn create_temp_dir() -> tempfile::TempDir {
@@ -290,5 +289,22 @@ pub mod env {
     /// Get a test vault path in a temporary directory
     pub fn get_test_vault_path(temp_dir: &tempfile::TempDir) -> PathBuf {
         temp_dir.path().join("test_vault.db")
+    }
+
+    /// Create a test crypto manager with OS keychain
+    pub fn create_test_crypto_manager() -> (CryptoManager, tempfile::TempDir) {
+        let temp_dir = create_temp_dir();
+        let keyset_path = temp_dir.path().join("keyset.json");
+        let crypto_manager = CryptoManager::new(&keyset_path).expect("Failed to create crypto manager");
+        (crypto_manager, temp_dir)
+    }
+
+    /// Create a test crypto manager with password-based encryption
+    pub fn create_test_crypto_manager_with_password(password: &str) -> (CryptoManager, tempfile::TempDir) {
+        let temp_dir = create_temp_dir();
+        let keyset_path = temp_dir.path().join("keyset.json");
+        let crypto_manager = CryptoManager::with_password(&keyset_path, password)
+            .expect("Failed to create password-based crypto manager");
+        (crypto_manager, temp_dir)
     }
 }

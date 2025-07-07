@@ -3,13 +3,15 @@
 //! Main daemon process that provides both HTTP API and MCP server for AI memory management
 
 use clap::{Parser, Subcommand};
-use mimir_core::{config::MimirConfig, Result};
+use mimir_core::{Config, Result};
 use rmcp::ServiceExt;
 use std::path::PathBuf;
 use tracing::{error, info};
+use crate::vault::{ensure_vault_ready, check_vault_status};
 
 mod mcp;
 mod server;
+mod vault;
 
 /// Mimir - Local-First AI Memory Vault
 #[derive(Parser)]
@@ -27,6 +29,10 @@ struct Cli {
     /// Override server port
     #[arg(short, long)]
     port: Option<u16>,
+
+    /// Auto-initialize vault if not ready
+    #[arg(long)]
+    auto_init: bool,
 
     /// Server mode
     #[command(subcommand)]
@@ -68,7 +74,7 @@ async fn main() -> Result<()> {
     info!("Starting Mimir v{}", env!("CARGO_PKG_VERSION"));
 
     // Load configuration
-    let mut config = MimirConfig::default();
+    let mut config = Config::default();
     if let Some(port) = cli.port {
         config.server.port = port;
     }
@@ -79,19 +85,22 @@ async fn main() -> Result<()> {
         // TODO: Implement config file loading
     }
 
-    // Initialize cryptographic system
-    info!("Initializing cryptographic system");
-    let keyset_path = config.storage.vault_path.parent()
-        .unwrap_or_else(|| std::path::Path::new("."))
-        .join("keyset.json");
+    // Check vault status and auto-initialize if needed
+    info!("Checking vault status...");
+    let vault_status = check_vault_status(&config);
+    info!("{}", vault_status.status_message());
     
-    let _crypto_manager = mimir_core::crypto::CryptoManager::new(&keyset_path)
-        .map_err(|e| {
-            error!("Failed to initialize crypto system: {}", e);
-            e
-        })?;
-    
-    info!("Crypto system initialized successfully");
+    if !vault_status.is_ready() {
+        if cli.auto_init {
+            info!("Auto-initializing vault...");
+            ensure_vault_ready(&config, true).await?;
+        } else {
+            error!("Vault not ready. Use --auto-init to auto-initialize or run 'mimir-cli init' first.");
+            return Err(mimir_core::MimirError::Initialization(
+                "Vault not initialized".to_string()
+            ));
+        }
+    }
 
     // Determine server mode
     let server_mode = cli.mode.unwrap_or_else(|| {
@@ -128,7 +137,7 @@ async fn main() -> Result<()> {
     }
 }
 
-async fn start_http_server(config: MimirConfig) -> Result<()> {
+async fn start_http_server(config: Config) -> Result<()> {
     match server::start(config).await {
         Ok(_) => {
             info!("HTTP server shutdown gracefully");
@@ -141,7 +150,7 @@ async fn start_http_server(config: MimirConfig) -> Result<()> {
     }
 }
 
-async fn start_mcp_server(config: MimirConfig) -> Result<()> {
+async fn start_mcp_server(_config: Config) -> Result<()> {
     info!("Starting MCP server");
     
     // Create the MCP server
@@ -165,11 +174,11 @@ async fn start_mcp_server(config: MimirConfig) -> Result<()> {
     }
 }
 
-async fn start_both_servers(config: MimirConfig) -> Result<()> {
+async fn start_both_servers(config: Config) -> Result<()> {
     info!("Starting both HTTP and MCP servers concurrently");
     
     let config_http = config.clone();
-    let config_mcp = config.clone();
+    let _config_mcp = config.clone();
     
     // Start both servers concurrently
     let http_handle = tokio::spawn(async move {
@@ -329,7 +338,7 @@ mod tests {
     #[tokio::test]
     async fn test_server_mode_determination() {
         // Test default mode with MCP enabled
-        let mut config = MimirConfig::default();
+        let mut config = Config::default();
         config.mcp.enabled = true;
         
         // When no mode is specified and MCP is enabled, should default to Both

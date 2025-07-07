@@ -1,55 +1,132 @@
+//! Mimir Configuration - Persistent settings for the AI Memory Vault
+//!
+//! This module provides configuration management for Mimir, including:
+//! - Database and vault paths
+//! - Encryption settings
+//! - Future extensible configuration options
+
+use crate::{MimirError, Result};
 use serde::{Deserialize, Serialize};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
+use std::fs;
 
-/// Get the default Mimir application directory
-/// 
-/// Returns OS-appropriate paths:
-/// - macOS: ~/Library/Application Support/Mimir/
-/// - Linux: ~/.local/share/mimir/
-/// - Windows: %USERPROFILE%\AppData\Local\Mimir\
-pub fn get_default_app_dir() -> PathBuf {
-    directories::ProjectDirs::from("", "", "Mimir")
-        .map(|d| d.data_dir().to_path_buf())
-        .unwrap_or_else(|| PathBuf::from("./mimir"))
-}
-
-/// Get the default vault database path
-pub fn get_default_vault_path() -> PathBuf {
-    get_default_app_dir().join("vault.db")
-}
-
-/// Get the default keyset path
-pub fn get_default_keyset_path() -> PathBuf {
-    get_default_app_dir().join("keyset.json")
-}
-
-/// Main configuration for Mimir daemon
+/// Configuration for the Mimir AI Memory Vault
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct MimirConfig {
+pub struct Config {
+    /// Version of the configuration format
+    #[serde(default = "default_config_version")]
+    pub version: u32,
+    
+    /// Path to the vault directory (where database and keyset are stored)
+    #[serde(default = "default_vault_path")]
+    pub vault_path: PathBuf,
+    
+    /// Path to the database file (relative to vault_path if not absolute)
+    #[serde(default = "default_database_path")]
+    pub database_path: PathBuf,
+    
+    /// Path to the keyset file (relative to vault_path if not absolute)
+    #[serde(default = "default_keyset_path")]
+    pub keyset_path: PathBuf,
+    
+    /// Encryption mode: "keychain" or "password"
+    #[serde(default = "default_encryption_mode")]
+    pub encryption_mode: String,
+    
+    /// Whether to use password-based encryption
+    #[serde(default)]
+    pub use_password_encryption: bool,
+    
+    /// Maximum number of memories to return in queries (0 = unlimited)
+    #[serde(default = "default_max_memories")]
+    pub max_memories: usize,
+    
+    /// Whether to enable debug logging
+    #[serde(default)]
+    pub debug_logging: bool,
+    
+    /// Auto-backup settings
+    #[serde(default)]
+    pub auto_backup: AutoBackupConfig,
+    
+    /// Server configuration
+    #[serde(default)]
     pub server: ServerConfig,
+    
+    /// MCP (Model Context Protocol) configuration
+    #[serde(default)]
     pub mcp: McpConfig,
-    pub storage: StorageConfig,
-    pub security: SecurityConfig,
-    pub processing: ProcessingConfig,
+    
+    /// Future extensible configuration options
+    #[serde(flatten)]
+    pub extra: std::collections::HashMap<String, serde_json::Value>,
+}
+
+/// Auto-backup configuration
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct AutoBackupConfig {
+    /// Whether auto-backup is enabled
+    #[serde(default)]
+    pub enabled: bool,
+    
+    /// Backup interval in hours (0 = disabled)
+    #[serde(default = "default_backup_interval")]
+    pub interval_hours: u32,
+    
+    /// Maximum number of backup files to keep
+    #[serde(default = "default_max_backups")]
+    pub max_backups: usize,
+    
+    /// Backup directory path (relative to vault_path if not absolute)
+    #[serde(default = "default_backup_path")]
+    pub backup_path: PathBuf,
 }
 
 /// Server configuration
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ServerConfig {
+    /// Server host address
+    #[serde(default = "default_server_host")]
     pub host: String,
+    
+    /// Server port
+    #[serde(default = "default_server_port")]
     pub port: u16,
+    
+    /// Whether to enable TLS
+    #[serde(default)]
     pub enable_tls: bool,
+    
+    /// TLS certificate path (if using TLS)
+    #[serde(default)]
     pub tls_cert_path: Option<PathBuf>,
+    
+    /// TLS key path (if using TLS)
+    #[serde(default)]
     pub tls_key_path: Option<PathBuf>,
 }
 
 /// MCP (Model Context Protocol) configuration
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct McpConfig {
+    /// Whether MCP server is enabled
+    #[serde(default = "default_mcp_enabled")]
     pub enabled: bool,
+    
+    /// MCP transport type
+    #[serde(default = "default_mcp_transport")]
     pub transport: McpTransport,
+    
+    /// Server name for MCP
+    #[serde(default = "default_mcp_server_name")]
     pub server_name: String,
+    
+    /// Server version for MCP
+    #[serde(default = "default_mcp_server_version")]
     pub server_version: String,
+    
+    /// Maximum number of MCP connections
+    #[serde(default = "default_mcp_max_connections")]
     pub max_connections: u32,
 }
 
@@ -62,64 +139,233 @@ pub enum McpTransport {
     Sse,
 }
 
-/// Storage configuration
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct StorageConfig {
-    pub vault_path: PathBuf,
-    pub max_memory_age_days: u64,
-    pub compression_threshold_days: u32,
-}
-
-/// Security configuration
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct SecurityConfig {
-    pub master_key_path: PathBuf,
-    pub enable_pii_detection: bool,
-    pub strict_access_control: bool,
-}
-
-/// Processing configuration
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct ProcessingConfig {
-    pub worker_threads: usize,
-    pub embedding_model: String,
-    pub compression_model: String,
-}
-
-impl Default for MimirConfig {
-    fn default() -> Self {
-        Self {
-            server: ServerConfig {
-                host: "127.0.0.1".to_string(),
-                port: 8100,
-                enable_tls: false,
-                tls_cert_path: None,
-                tls_key_path: None,
-            },
-            mcp: McpConfig {
-                enabled: true,
-                transport: McpTransport::Stdio,
-                server_name: "mimir".to_string(),
-                server_version: env!("CARGO_PKG_VERSION").to_string(),
-                max_connections: 10,
-            },
-            storage: StorageConfig {
-                vault_path: get_default_vault_path(),
-                max_memory_age_days: 90,
-                compression_threshold_days: 30,
-            },
-            security: SecurityConfig {
-                master_key_path: get_default_app_dir().join("master.key"),
-                enable_pii_detection: true,
-                strict_access_control: true,
-            },
-            processing: ProcessingConfig {
-                worker_threads: num_cpus::get(),
-                embedding_model: "sentence-transformers/all-MiniLM-L6-v2".to_string(),
-                compression_model: "microsoft/DialoGPT-small".to_string(),
-            },
+impl Config {
+    /// Create a new configuration with default values
+    pub fn new() -> Self {
+        Self::default()
+    }
+    
+    /// Load configuration from the default location
+    pub fn load() -> Result<Self> {
+        let config_path = get_default_config_path();
+        Self::load_from(&config_path)
+    }
+    
+    /// Load configuration from a specific path
+    pub fn load_from<P: AsRef<Path>>(config_path: P) -> Result<Self> {
+        let config_path = config_path.as_ref();
+        
+        if !config_path.exists() {
+            return Ok(Self::new());
+        }
+        
+        let config_data = fs::read_to_string(config_path)
+            .map_err(|e| MimirError::Config(format!("Failed to read config file: {}", e)))?;
+        
+        let mut config: Config = serde_json::from_str(&config_data)
+            .map_err(|e| MimirError::Config(format!("Failed to parse config file: {}", e)))?;
+        
+        // Ensure paths are resolved relative to config file location
+        config.resolve_paths(config_path.parent().unwrap_or(Path::new("")));
+        
+        Ok(config)
+    }
+    
+    /// Save configuration to the default location
+    pub fn save(&self) -> Result<()> {
+        let config_path = get_default_config_path();
+        self.save_to(&config_path)
+    }
+    
+    /// Save configuration to a specific path
+    pub fn save_to<P: AsRef<Path>>(&self, config_path: P) -> Result<()> {
+        let config_path = config_path.as_ref();
+        
+        // Ensure the parent directory exists
+        if let Some(parent) = config_path.parent() {
+            fs::create_dir_all(parent)
+                .map_err(|e| MimirError::Config(format!("Failed to create config directory: {}", e)))?;
+        }
+        
+        let config_data = serde_json::to_string_pretty(self)
+            .map_err(|e| MimirError::Config(format!("Failed to serialize config: {}", e)))?;
+        
+        fs::write(config_path, config_data)
+            .map_err(|e| MimirError::Config(format!("Failed to write config file: {}", e)))?;
+        
+        Ok(())
+    }
+    
+    /// Get the absolute path to the database file
+    pub fn get_database_path(&self) -> PathBuf {
+        if self.database_path.is_absolute() {
+            self.database_path.clone()
+        } else {
+            self.vault_path.join(&self.database_path)
         }
     }
+    
+    /// Get the absolute path to the keyset file
+    pub fn get_keyset_path(&self) -> PathBuf {
+        if self.keyset_path.is_absolute() {
+            self.keyset_path.clone()
+        } else {
+            self.vault_path.join(&self.keyset_path)
+        }
+    }
+    
+    /// Get the vault path
+    pub fn get_vault_path(&self) -> &PathBuf {
+        &self.vault_path
+    }
+    
+    /// Get the absolute path to the backup directory
+    pub fn get_backup_path(&self) -> PathBuf {
+        if self.auto_backup.backup_path.is_absolute() {
+            self.auto_backup.backup_path.clone()
+        } else {
+            self.vault_path.join(&self.auto_backup.backup_path)
+        }
+    }
+    
+    /// Set the vault path and update relative paths accordingly
+    pub fn set_vault_path<P: AsRef<Path>>(&mut self, vault_path: P) {
+        self.vault_path = vault_path.as_ref().to_path_buf();
+    }
+    
+    /// Set the database path (can be relative or absolute)
+    pub fn set_database_path<P: AsRef<Path>>(&mut self, database_path: P) {
+        self.database_path = database_path.as_ref().to_path_buf();
+    }
+    
+    /// Set the keyset path (can be relative or absolute)
+    pub fn set_keyset_path<P: AsRef<Path>>(&mut self, keyset_path: P) {
+        self.keyset_path = keyset_path.as_ref().to_path_buf();
+    }
+    
+    /// Set encryption mode
+    pub fn set_encryption_mode(&mut self, mode: &str) {
+        self.encryption_mode = mode.to_string();
+        self.use_password_encryption = mode == "password";
+    }
+    
+    /// Resolve relative paths based on a base directory
+    fn resolve_paths(&mut self, base_dir: &Path) {
+        // Only resolve paths that are relative and not already resolved
+        if !self.vault_path.is_absolute() {
+            self.vault_path = base_dir.join(&self.vault_path);
+        }
+    }
+    
+    /// Validate the configuration
+    pub fn validate(&self) -> Result<()> {
+        if self.version < 1 {
+            return Err(MimirError::Config("Invalid config version".to_string()));
+        }
+        
+        if self.max_memories > 1_000_000 {
+            return Err(MimirError::Config("max_memories cannot exceed 1,000,000".to_string()));
+        }
+        
+        if self.auto_backup.interval_hours > 8760 { // 1 year
+            return Err(MimirError::Config("backup_interval_hours cannot exceed 8760".to_string()));
+        }
+        
+        if self.auto_backup.max_backups > 1000 {
+            return Err(MimirError::Config("max_backups cannot exceed 1000".to_string()));
+        }
+        
+        Ok(())
+    }
+}
+
+impl Default for Config {
+    fn default() -> Self {
+        Self {
+            version: default_config_version(),
+            vault_path: default_vault_path(),
+            database_path: default_database_path(),
+            keyset_path: default_keyset_path(),
+            encryption_mode: default_encryption_mode(),
+            use_password_encryption: false,
+            max_memories: default_max_memories(),
+            debug_logging: false,
+            auto_backup: AutoBackupConfig::default(),
+            server: ServerConfig::default(),
+            mcp: McpConfig::default(),
+            extra: std::collections::HashMap::new(),
+        }
+    }
+}
+
+impl Default for AutoBackupConfig {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            interval_hours: default_backup_interval(),
+            max_backups: default_max_backups(),
+            backup_path: default_backup_path(),
+        }
+    }
+}
+
+impl Default for ServerConfig {
+    fn default() -> Self {
+        Self {
+            host: default_server_host(),
+            port: default_server_port(),
+            enable_tls: false,
+            tls_cert_path: None,
+            tls_key_path: None,
+        }
+    }
+}
+
+impl Default for McpConfig {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            transport: McpTransport::Stdio,
+            server_name: "Mimir".to_string(),
+            server_version: "0.1.0".to_string(),
+            max_connections: 10,
+        }
+    }
+}
+
+// Default value functions
+fn default_config_version() -> u32 { 1 }
+fn default_vault_path() -> PathBuf { get_default_app_dir() }
+fn default_database_path() -> PathBuf { PathBuf::from("mimir.db") }
+fn default_keyset_path() -> PathBuf { PathBuf::from("keyset.json") }
+fn default_encryption_mode() -> String { "keychain".to_string() }
+fn default_max_memories() -> usize { 1000 }
+fn default_backup_interval() -> u32 { 24 }
+fn default_max_backups() -> usize { 10 }
+fn default_backup_path() -> PathBuf { PathBuf::from("backups") }
+fn default_server_host() -> String { "localhost".to_string() }
+fn default_server_port() -> u16 { 8080 }
+fn default_mcp_enabled() -> bool { false }
+fn default_mcp_transport() -> McpTransport { McpTransport::Stdio }
+fn default_mcp_server_name() -> String { "Mimir".to_string() }
+fn default_mcp_server_version() -> String { "0.1.0".to_string() }
+fn default_mcp_max_connections() -> u32 { 10 }
+
+/// Get the default application directory for Mimir
+pub fn get_default_app_dir() -> PathBuf {
+    directories::ProjectDirs::from("", "", "Mimir")
+        .map(|d| d.config_dir().to_path_buf())
+        .unwrap_or_else(|| PathBuf::from("./mimir"))
+}
+
+/// Get the default configuration file path
+pub fn get_default_config_path() -> PathBuf {
+    get_default_app_dir().join("config.json")
+}
+
+/// Get the default keyset path (for backward compatibility)
+pub fn get_default_keyset_path() -> PathBuf {
+    get_default_app_dir().join("keyset.json")
 }
 
 #[cfg(test)]
@@ -128,343 +374,81 @@ mod tests {
     use tempfile::TempDir;
 
     #[test]
-    fn test_default_config_values() {
-        let config = MimirConfig::default();
-
-        // Test server defaults
-        assert_eq!(config.server.host, "127.0.0.1");
-        assert_eq!(config.server.port, 8100);
-        assert!(!config.server.enable_tls);
-        assert!(config.server.tls_cert_path.is_none());
-        assert!(config.server.tls_key_path.is_none());
-
-        // Test MCP defaults
-        assert!(config.mcp.enabled);
-        assert_eq!(config.mcp.server_name, "mimir");
-        assert_eq!(config.mcp.server_version, env!("CARGO_PKG_VERSION"));
-        assert_eq!(config.mcp.max_connections, 10);
-        match config.mcp.transport {
-            McpTransport::Stdio => (),
-            _ => panic!("Expected default transport to be Stdio"),
-        }
-
-        // Test storage defaults
-        assert_eq!(config.storage.max_memory_age_days, 90);
-        assert_eq!(config.storage.compression_threshold_days, 30);
-        assert!(config
-            .storage
-            .vault_path
-            .to_string_lossy()
-            .contains("vault.db"));
-
-        // Test security defaults
-        assert!(config.security.enable_pii_detection);
-        assert!(config.security.strict_access_control);
-        assert!(config
-            .security
-            .master_key_path
-            .to_string_lossy()
-            .contains("master.key"));
-
-        // Test processing defaults
-        assert!(config.processing.worker_threads > 0);
-        assert!(config.processing.embedding_model.contains("MiniLM"));
-        assert!(config.processing.compression_model.contains("DialoGPT"));
-    }
-
-    #[test]
-    fn test_mcp_config_creation() {
-        let mcp_config = McpConfig {
-            enabled: false,
-            transport: McpTransport::Sse,
-            server_name: "test-server".to_string(),
-            server_version: "1.2.3".to_string(),
-            max_connections: 25,
-        };
-
-        assert!(!mcp_config.enabled);
-        assert_eq!(mcp_config.server_name, "test-server");
-        assert_eq!(mcp_config.server_version, "1.2.3");
-        assert_eq!(mcp_config.max_connections, 25);
-        
-        match mcp_config.transport {
-            McpTransport::Sse => (),
-            _ => panic!("Expected SSE transport"),
-        }
-    }
-
-    #[test]
-    fn test_mcp_transport_variants() {
-        // Test Stdio variant
-        let stdio_transport = McpTransport::Stdio;
-        match stdio_transport {
-            McpTransport::Stdio => (),
-            _ => panic!("Expected Stdio transport"),
-        }
-
-        // Test SSE variant
-        let sse_transport = McpTransport::Sse;
-        match sse_transport {
-            McpTransport::Sse => (),
-            _ => panic!("Expected SSE transport"),
-        }
-    }
-
-    #[test]
-    fn test_mcp_config_serialization() {
-        let mcp_config = McpConfig {
-            enabled: true,
-            transport: McpTransport::Stdio,
-            server_name: "test-mimir".to_string(),
-            server_version: "2.0.0".to_string(),
-            max_connections: 15,
-        };
-
-        // Test serialization
-        let serialized = serde_json::to_string(&mcp_config).unwrap();
-        assert!(serialized.contains("test-mimir"));
-        assert!(serialized.contains("2.0.0"));
-        assert!(serialized.contains("Stdio"));
-        assert!(serialized.contains("15"));
-
-        // Test deserialization
-        let deserialized: McpConfig = serde_json::from_str(&serialized).unwrap();
-        assert_eq!(deserialized.enabled, mcp_config.enabled);
-        assert_eq!(deserialized.server_name, mcp_config.server_name);
-        assert_eq!(deserialized.server_version, mcp_config.server_version);
-        assert_eq!(deserialized.max_connections, mcp_config.max_connections);
-    }
-
-    #[test]
-    fn test_mcp_transport_serialization() {
-        // Test Stdio serialization
-        let stdio = McpTransport::Stdio;
-        let serialized = serde_json::to_string(&stdio).unwrap();
-        assert_eq!(serialized, "\"Stdio\"");
-        
-        let deserialized: McpTransport = serde_json::from_str(&serialized).unwrap();
-        match deserialized {
-            McpTransport::Stdio => (),
-            _ => panic!("Expected Stdio after deserialization"),
-        }
-
-        // Test SSE serialization
-        let sse = McpTransport::Sse;
-        let serialized = serde_json::to_string(&sse).unwrap();
-        assert_eq!(serialized, "\"Sse\"");
-        
-        let deserialized: McpTransport = serde_json::from_str(&serialized).unwrap();
-        match deserialized {
-            McpTransport::Sse => (),
-            _ => panic!("Expected SSE after deserialization"),
-        }
+    fn test_config_defaults() {
+        let config = Config::new();
+        assert_eq!(config.version, 1);
+        assert_eq!(config.encryption_mode, "keychain");
+        assert!(!config.use_password_encryption);
+        assert_eq!(config.max_memories, 1000);
+        assert!(!config.debug_logging);
     }
 
     #[test]
     fn test_config_serialization() {
-        let config = MimirConfig::default();
-
-        let serialized = serde_json::to_string(&config).unwrap();
-        assert!(!serialized.is_empty());
-        assert!(serialized.contains("127.0.0.1"));
-        assert!(serialized.contains("8100"));
-
-        let deserialized: MimirConfig = serde_json::from_str(&serialized).unwrap();
-        assert_eq!(config.server.host, deserialized.server.host);
-        assert_eq!(config.server.port, deserialized.server.port);
+        let config = Config::new();
+        let json = serde_json::to_string(&config).unwrap();
+        let deserialized: Config = serde_json::from_str(&json).unwrap();
+        assert_eq!(config.version, deserialized.version);
+        assert_eq!(config.encryption_mode, deserialized.encryption_mode);
     }
 
     #[test]
-    fn test_server_config_custom_values() {
-        let server_config = ServerConfig {
-            host: "0.0.0.0".to_string(),
-            port: 9090,
-            enable_tls: true,
-            tls_cert_path: Some(PathBuf::from("/path/to/cert.pem")),
-            tls_key_path: Some(PathBuf::from("/path/to/key.pem")),
-        };
-
-        assert_eq!(server_config.host, "0.0.0.0");
-        assert_eq!(server_config.port, 9090);
-        assert!(server_config.enable_tls);
-        assert!(server_config.tls_cert_path.is_some());
-        assert!(server_config.tls_key_path.is_some());
-    }
-
-    #[test]
-    fn test_storage_config_paths() {
+    fn test_config_save_load() {
         let temp_dir = TempDir::new().unwrap();
-        let vault_path = temp_dir.path().join("custom_vault.db");
-
-        let storage_config = StorageConfig {
-            vault_path: vault_path.clone(),
-            max_memory_age_days: 30,
-            compression_threshold_days: 7,
-        };
-
-        assert_eq!(storage_config.vault_path, vault_path);
-        assert_eq!(storage_config.max_memory_age_days, 30);
-        assert_eq!(storage_config.compression_threshold_days, 7);
+        let config_path = temp_dir.path().join("test_config.json");
+        
+        let mut config = Config::new();
+        config.set_vault_path(temp_dir.path());
+        config.set_encryption_mode("password");
+        config.max_memories = 500;
+        
+        // Save config
+        config.save_to(&config_path).unwrap();
+        assert!(config_path.exists());
+        
+        // Load config
+        let loaded_config = Config::load_from(&config_path).unwrap();
+        assert_eq!(loaded_config.encryption_mode, "password");
+        assert_eq!(loaded_config.max_memories, 500);
+        assert!(loaded_config.use_password_encryption);
     }
 
     #[test]
-    fn test_security_config_settings() {
-        let temp_dir = TempDir::new().unwrap();
-        let key_path = temp_dir.path().join("custom.key");
-
-        let security_config = SecurityConfig {
-            master_key_path: key_path.clone(),
-            enable_pii_detection: false,
-            strict_access_control: false,
-        };
-
-        assert_eq!(security_config.master_key_path, key_path);
-        assert!(!security_config.enable_pii_detection);
-        assert!(!security_config.strict_access_control);
+    fn test_path_resolution() {
+        let mut config = Config::new();
+        config.set_vault_path("/custom/vault");
+        config.set_database_path("custom.db");
+        config.set_keyset_path("custom_keyset.json");
+        
+        assert_eq!(config.get_database_path(), PathBuf::from("/custom/vault/custom.db"));
+        assert_eq!(config.get_keyset_path(), PathBuf::from("/custom/vault/custom_keyset.json"));
     }
 
     #[test]
-    fn test_processing_config_threads() {
-        let processing_config = ProcessingConfig {
-            worker_threads: 4,
-            embedding_model: "custom/model".to_string(),
-            compression_model: "custom/compression".to_string(),
-        };
-
-        assert_eq!(processing_config.worker_threads, 4);
-        assert_eq!(processing_config.embedding_model, "custom/model");
-        assert_eq!(processing_config.compression_model, "custom/compression");
+    fn test_config_validation() {
+        let mut config = Config::new();
+        assert!(config.validate().is_ok());
+        
+        // Test invalid max_memories
+        config.max_memories = 2_000_000;
+        assert!(config.validate().is_err());
+        
+        // Test invalid backup interval
+        config.max_memories = 1000;
+        config.auto_backup.interval_hours = 10000;
+        assert!(config.validate().is_err());
     }
 
     #[test]
-    fn test_config_roundtrip_serialization() {
-        let original_config = MimirConfig {
-            server: ServerConfig {
-                host: "test.example.com".to_string(),
-                port: 8080,
-                enable_tls: true,
-                tls_cert_path: Some(PathBuf::from("/test/cert.pem")),
-                tls_key_path: Some(PathBuf::from("/test/key.pem")),
-            },
-            mcp: McpConfig {
-                enabled: false,
-                transport: McpTransport::Sse,
-                server_name: "test-mimir".to_string(),
-                server_version: "0.1.0".to_string(),
-                max_connections: 5,
-            },
-            storage: StorageConfig {
-                vault_path: PathBuf::from("/test/vault.db"),
-                max_memory_age_days: 60,
-                compression_threshold_days: 14,
-            },
-            security: SecurityConfig {
-                master_key_path: PathBuf::from("/test/master.key"),
-                enable_pii_detection: false,
-                strict_access_control: false,
-            },
-            processing: ProcessingConfig {
-                worker_threads: 8,
-                embedding_model: "test/embedding".to_string(),
-                compression_model: "test/compression".to_string(),
-            },
-        };
-
-        let serialized = serde_json::to_string(&original_config).unwrap();
-        let deserialized: MimirConfig = serde_json::from_str(&serialized).unwrap();
-
-        assert_eq!(original_config.server.host, deserialized.server.host);
-        assert_eq!(original_config.server.port, deserialized.server.port);
-        assert_eq!(
-            original_config.server.enable_tls,
-            deserialized.server.enable_tls
-        );
-        assert_eq!(
-            original_config.storage.vault_path,
-            deserialized.storage.vault_path
-        );
-        assert_eq!(
-            original_config.security.enable_pii_detection,
-            deserialized.security.enable_pii_detection
-        );
-        assert_eq!(
-            original_config.processing.worker_threads,
-            deserialized.processing.worker_threads
-        );
-    }
-
-    #[test]
-    fn test_worker_threads_positive() {
-        let config = MimirConfig::default();
-        assert!(config.processing.worker_threads > 0);
-
-        // Test that default uses system CPU count
-        let system_cpus = num_cpus::get();
-        assert_eq!(config.processing.worker_threads, system_cpus);
-    }
-
-    #[test]
-    fn test_port_range_validity() {
-        let config = MimirConfig::default();
-        assert!(config.server.port > 0);
-        // Note: u16 is always <= 65535, but this documents our expectation
-        assert!(config.server.port > 1024); // Should be above well-known ports
-    }
-
-    #[test]
-    fn test_age_thresholds_logical() {
-        let config = MimirConfig::default();
-
-        // Compression threshold should be less than max age
-        assert!(
-            config.storage.compression_threshold_days < config.storage.max_memory_age_days as u32
-        );
-
-        // Both should be positive
-        assert!(config.storage.max_memory_age_days > 0);
-        assert!(config.storage.compression_threshold_days > 0);
-    }
-
-    #[test]
-    fn test_model_names_not_empty() {
-        let config = MimirConfig::default();
-
-        assert!(!config.processing.embedding_model.is_empty());
-        assert!(!config.processing.compression_model.is_empty());
-
-        // Should contain model identifiers
-        assert!(config.processing.embedding_model.contains('/'));
-        assert!(config.processing.compression_model.contains('/'));
-    }
-
-    #[test]
-    fn test_default_paths_are_appropriate() {
-        let app_dir = get_default_app_dir();
-        let vault_path = get_default_vault_path();
-        let keyset_path = get_default_keyset_path();
-
-        // All paths should be absolute or contain Mimir/mimir
-        let app_dir_str = app_dir.to_string_lossy().to_lowercase();
-        assert!(app_dir_str.contains("mimir") || app_dir_str.starts_with("./mimir"));
-
-        // Vault path should be in the app directory
-        assert!(vault_path.starts_with(&app_dir));
-        assert!(vault_path.file_name().unwrap() == "vault.db");
-
-        // Keyset path should be in the app directory
-        assert!(keyset_path.starts_with(&app_dir));
-        assert!(keyset_path.file_name().unwrap() == "keyset.json");
-    }
-
-    #[test]
-    fn test_default_config_uses_proper_paths() {
-        let config = MimirConfig::default();
-
-        // Storage path should be the default vault path
-        assert_eq!(config.storage.vault_path, get_default_vault_path());
-
-        // Security path should be in the app directory
-        assert!(config.security.master_key_path.starts_with(&get_default_app_dir()));
-        assert!(config.security.master_key_path.file_name().unwrap() == "master.key");
+    fn test_encryption_mode_setting() {
+        let mut config = Config::new();
+        
+        config.set_encryption_mode("password");
+        assert_eq!(config.encryption_mode, "password");
+        assert!(config.use_password_encryption);
+        
+        config.set_encryption_mode("keychain");
+        assert_eq!(config.encryption_mode, "keychain");
+        assert!(!config.use_password_encryption);
     }
 }

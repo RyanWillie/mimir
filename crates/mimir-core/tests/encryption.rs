@@ -7,11 +7,19 @@ use mimir_core::crypto::{CryptoManager, RootKey};
 use mimir_core::Result;
 use tempfile::TempDir;
 
-/// Helper to create a test crypto manager
+/// Helper to create a test crypto manager with OS keychain
 fn create_test_crypto_manager() -> (CryptoManager, TempDir) {
     let temp_dir = TempDir::new().unwrap();
     let keyset_path = temp_dir.path().join("keyset.json");
     let crypto_manager = CryptoManager::new(&keyset_path).unwrap();
+    (crypto_manager, temp_dir)
+}
+
+/// Helper to create a test crypto manager with password-based encryption
+fn create_test_crypto_manager_with_password(password: &str) -> (CryptoManager, TempDir) {
+    let temp_dir = TempDir::new().unwrap();
+    let keyset_path = temp_dir.path().join("keyset.json");
+    let crypto_manager = CryptoManager::with_password(&keyset_path, password).unwrap();
     (crypto_manager, temp_dir)
 }
 
@@ -359,6 +367,122 @@ fn test_concurrent_encryption() {
     }
 }
 
+#[test]
+fn test_password_based_encryption_integration() {
+    let password = "test-password-123";
+    let (mut crypto_manager, _temp_dir) = create_test_crypto_manager_with_password(password);
+    
+    let test_data = "Sensitive data encrypted with password";
+    let class = "personal";
+    
+    // Encrypt the data
+    let ciphertext = crypto_manager.encrypt(class, test_data.as_bytes()).unwrap();
+    
+    // Verify ciphertext is different from plaintext
+    assert_ne!(ciphertext.data, test_data.as_bytes());
+    assert!(!ciphertext.nonce.is_empty());
+    
+    // Decrypt the data
+    let decrypted = crypto_manager.decrypt(class, &ciphertext).unwrap();
+    let decrypted_str = String::from_utf8(decrypted).unwrap();
+    
+    // Verify round-trip integrity
+    assert_eq!(decrypted_str, test_data);
+}
+
+#[test]
+fn test_password_based_persistence_integration() {
+    let password = "persistence-test-password";
+    let temp_dir = TempDir::new().unwrap();
+    let keyset_path = temp_dir.path().join("keyset.json");
+    
+    let test_data = "Data that should persist across crypto manager instances";
+    let class = "work";
+    
+    // Create first manager and encrypt data
+    let ciphertext = {
+        let mut crypto_manager = CryptoManager::with_password(&keyset_path, password).unwrap();
+        crypto_manager.encrypt(class, test_data.as_bytes()).unwrap()
+    };
+    
+    // Create second manager and decrypt data
+    {
+        let mut crypto_manager = CryptoManager::with_password(&keyset_path, password).unwrap();
+        let decrypted = crypto_manager.decrypt(class, &ciphertext).unwrap();
+        assert_eq!(String::from_utf8(decrypted).unwrap(), test_data);
+    }
+    
+    // Verify keyset file exists and contains salt
+    assert!(keyset_path.exists());
+    let keyset_data = std::fs::read(&keyset_path).unwrap();
+    let keyset: mimir_core::crypto::Keyset = serde_json::from_slice(&keyset_data).unwrap();
+    assert!(keyset.salt.is_some());
+}
+
+#[test]
+fn test_wrong_password_fails() {
+    let temp_dir = TempDir::new().unwrap();
+    let keyset_path = temp_dir.path().join("keyset.json");
+    
+    let correct_password = "correct-password";
+    let wrong_password = "wrong-password";
+    
+    // Create manager with correct password and encrypt some data
+    {
+        let mut crypto_manager = CryptoManager::with_password(&keyset_path, correct_password).unwrap();
+        let test_data = "Secret data";
+        let _ciphertext = crypto_manager.encrypt("personal", test_data.as_bytes()).unwrap();
+    }
+    
+    // Try to initialize with wrong password - this should fail during decryption
+    // because the derived root key will be different
+    let result = CryptoManager::with_password(&keyset_path, wrong_password);
+    assert!(result.is_ok(), "Should be able to initialize with wrong password (keyset exists)");
+    
+    // But decryption should fail when we try to use it
+    let mut crypto_manager = result.unwrap();
+    let test_data = "Secret data";
+    let ciphertext = {
+        let mut correct_manager = CryptoManager::with_password(&keyset_path, correct_password).unwrap();
+        correct_manager.encrypt("personal", test_data.as_bytes()).unwrap()
+    };
+    
+    // This should fail because the wrong password produces a different root key
+    let decrypt_result = crypto_manager.decrypt("personal", &ciphertext);
+    assert!(decrypt_result.is_err(), "Should not be able to decrypt with wrong password");
+}
+
+#[test]
+fn test_mixed_encryption_modes() {
+    // Test that we can have both keychain-based and password-based managers in the same test
+    let temp_dir1 = TempDir::new().unwrap();
+    let temp_dir2 = TempDir::new().unwrap();
+    
+    let keyset_path1 = temp_dir1.path().join("keyset.json");
+    let keyset_path2 = temp_dir2.path().join("keyset.json");
+    
+    let password = "mixed-mode-test";
+    let test_data = "Test data for mixed modes";
+    
+    // Create keychain-based manager
+    let mut keychain_manager = CryptoManager::new(&keyset_path1).unwrap();
+    let keychain_ciphertext = keychain_manager.encrypt("personal", test_data.as_bytes()).unwrap();
+    
+    // Create password-based manager
+    let mut password_manager = CryptoManager::with_password(&keyset_path2, password).unwrap();
+    let password_ciphertext = password_manager.encrypt("personal", test_data.as_bytes()).unwrap();
+    
+    // Both should work independently
+    let keychain_decrypted = keychain_manager.decrypt("personal", &keychain_ciphertext).unwrap();
+    let password_decrypted = password_manager.decrypt("personal", &password_ciphertext).unwrap();
+    
+    assert_eq!(String::from_utf8(keychain_decrypted).unwrap(), test_data);
+    assert_eq!(String::from_utf8(password_decrypted).unwrap(), test_data);
+    
+    // Ciphertexts should be different (different keys)
+    assert_ne!(keychain_ciphertext.data, password_ciphertext.data);
+}
+
 #[cfg(test)]
 mod performance_tests {
     use super::*;
@@ -384,5 +508,28 @@ mod performance_tests {
         
         // Should complete reasonably quickly (adjust threshold as needed)
         assert!(duration.as_millis() < 5000, "Encryption should be reasonably fast");
+    }
+    
+    #[test]
+    fn test_password_based_encryption_performance() {
+        let password = "performance-test-password";
+        let (mut crypto_manager, _temp_dir) = create_test_crypto_manager_with_password(password);
+        
+        let test_data = "Performance test data with password";
+        let class = "personal";
+        let iterations = 100; // Fewer iterations since password derivation is slower
+        
+        let start = Instant::now();
+        
+        for _i in 0..iterations {
+            let ciphertext = crypto_manager.encrypt(class, test_data.as_bytes()).unwrap();
+            let _decrypted = crypto_manager.decrypt(class, &ciphertext).unwrap();
+        }
+        
+        let duration = start.elapsed();
+        println!("Password-based encrypted/decrypted {} times in {:?}", iterations, duration);
+        
+        // Password-based encryption should still be reasonably fast
+        assert!(duration.as_millis() < 2000, "Password-based encryption should be reasonably fast");
     }
 } 

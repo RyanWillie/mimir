@@ -1,7 +1,8 @@
 //! Mimir CLI - Command-line interface for the AI Memory Vault
 
 use clap::{Parser, Subcommand};
-use mimir_core::Result;
+use mimir_core::{Config, Result};
+use mimir_db::Database;
 use tracing::info;
 
   /// Mimir CLI - Manage your local AI memory vault
@@ -20,6 +21,9 @@ enum Commands {
         /// Vault directory path
         #[arg(short, long)]
         path: Option<String>,
+        /// Use password-based encryption instead of OS keychain
+        #[arg(long)]
+        password: bool,
     },
     /// Show vault status
     Status,
@@ -69,10 +73,18 @@ async fn main() -> Result<()> {
     let cli = Cli::parse();
 
     match cli.command {
-        Commands::Init { path } => {
+        Commands::Init { path, password } => {
+            // Load existing config or create new one
+            let mut config = Config::load().unwrap_or_else(|_| Config::new());
+            
+            // Update vault path if provided
             let vault_dir = match path {
-                Some(p) => std::path::PathBuf::from(p),
-                None => mimir_core::config::get_default_app_dir(),
+                Some(p) => {
+                    let vault_path = std::path::PathBuf::from(p);
+                    config.set_vault_path(&vault_path);
+                    vault_path
+                }
+                None => config.get_vault_path().clone(),
             };
             
             info!("Initializing memory vault at: {}", vault_dir.display());
@@ -80,11 +92,44 @@ async fn main() -> Result<()> {
             // Create the directory if it doesn't exist
             std::fs::create_dir_all(&vault_dir)?;
             
-            // Initialize crypto manager
-            let keyset_path = vault_dir.join("keyset.json");
-            let _crypto_manager = mimir_core::crypto::CryptoManager::new(&keyset_path)?;
+            // Set encryption mode
+            if password {
+                config.set_encryption_mode("password");
+                println!("🔐 Using password-based encryption");
+                println!("Enter a strong password for your memory vault:");
+                
+                let mut password_input = String::new();
+                std::io::stdin().read_line(&mut password_input)?;
+                let password = password_input.trim();
+                
+                if password.is_empty() {
+                    return Err(mimir_core::MimirError::Config("Password cannot be empty".to_string()));
+                }
+                
+                let keyset_path = config.get_keyset_path();
+                let crypto_manager = mimir_core::crypto::CryptoManager::with_password(&keyset_path, password)?;
+                println!("✅ Memory vault initialized with password-based encryption at {}", vault_dir.display());
+                
+                // Initialize database with the password-based crypto manager
+                let db_path = config.get_database_path();
+                let _db = Database::with_crypto_manager(&db_path, crypto_manager)?;
+                println!("✅ Database initialized at {}", db_path.display());
+            } else {
+                config.set_encryption_mode("keychain");
+                println!("🔑 Using OS keychain for encryption");
+                let keyset_path = config.get_keyset_path();
+                let crypto_manager = mimir_core::crypto::CryptoManager::new(&keyset_path)?;
+                println!("✅ Memory vault initialized with OS keychain at {}", vault_dir.display());
+                
+                // Initialize database with the keychain-based crypto manager
+                let db_path = config.get_database_path();
+                let _db = Database::with_crypto_manager(&db_path, crypto_manager)?;
+                println!("✅ Database initialized at {}", db_path.display());
+            }
             
-            println!("✅ Memory vault initialized at {}", vault_dir.display());
+            // Save configuration
+            config.save()?;
+            println!("✅ Configuration saved to {}", mimir_core::get_default_config_path().display());
         }
         Commands::Status => {
             info!("Checking vault status");

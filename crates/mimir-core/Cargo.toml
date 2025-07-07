@@ -9,7 +9,7 @@ description = "Core types and utilities for Mimir AI Memory Vault"
 
 [features]
 default = []
-test-utils = ["dep:tempfile"]
+test-utils = []
 
 [dependencies]
 serde.workspace = true
@@ -21,6 +21,7 @@ thiserror.workspace = true
 regex.workspace = true
 directories.workspace = true
 num_cpus.workspace = true
+tempfile.workspace = true
 
 # Encryption dependencies
 ring = "0.17"
@@ -38,8 +39,7 @@ keyring = "2.0"
 [target.'cfg(target_os = "windows")'.dependencies]
 keyring = "2.0"
 
-# Test utilities dependencies (only when test-utils feature is enabled)
-tempfile = { workspace = true, optional = true }
+tempfile = { workspace = true }
 
 [dev-dependencies]
 tokio-test.workspace = true

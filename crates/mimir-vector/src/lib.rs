@@ -3,10 +3,10 @@
 use mimir_core::{MemoryId, Result};
 use std::path::Path;
 
-pub mod error;
 pub mod embedder;
-pub mod rotation;
+pub mod error;
 pub mod hnsw_store;
+pub mod rotation;
 
 use error::VectorResult;
 use hnsw_store::SecureVectorStore;
@@ -20,20 +20,27 @@ pub struct VectorStore<'a> {
     secure_store: SecureVectorStore<'a>,
 }
 
+impl<'a> Default for VectorStore<'a> {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl<'a> VectorStore<'a> {
     /// Create a new vector store
     pub fn new() -> Self {
         // Default to 768 dimensions for BGE models
-        let secure_store = SecureVectorStore::new(768).expect("Failed to create secure vector store");
+        let secure_store =
+            SecureVectorStore::new(768).expect("Failed to create secure vector store");
         Self { secure_store }
     }
-    
+
     /// Create a new vector store with embedding model
     pub async fn with_embedder<P: AsRef<Path>>(model_path: P) -> VectorResult<Self> {
         let secure_store = SecureVectorStore::with_embedder(model_path).await?;
         Ok(Self { secure_store })
     }
-    
+
     /// Create a new vector store with default BGE model
     pub async fn with_default_embedder() -> VectorResult<Self> {
         let model_path = if let Ok(workspace_root) = std::env::var("CARGO_WORKSPACE_DIR") {
@@ -51,16 +58,17 @@ impl<'a> VectorStore<'a> {
         };
         Self::with_embedder(model_path).await
     }
-    
+
     /// Create a new vector store with embedding model and rotation matrix
     pub async fn with_embedder_and_rotation<P: AsRef<Path>>(
         model_path: P,
         root_key: &mimir_core::crypto::RootKey,
     ) -> VectorResult<Self> {
-        let secure_store = SecureVectorStore::with_embedder_and_rotation(model_path, root_key).await?;
+        let secure_store =
+            SecureVectorStore::with_embedder_and_rotation(model_path, root_key).await?;
         Ok(Self { secure_store })
     }
-    
+
     /// Create a new vector store with default BGE model and rotation matrix
     pub async fn with_default_embedder_and_rotation(
         root_key: &mimir_core::crypto::RootKey,
@@ -80,83 +88,96 @@ impl<'a> VectorStore<'a> {
         };
         Self::with_embedder_and_rotation(model_path, root_key).await
     }
-    
+
     /// Add a vector to the store
     pub async fn add_vector(&mut self, id: MemoryId, embedding: Vec<f32>) -> Result<()> {
-        self.secure_store.add_raw_vector(embedding, id).await
+        self.secure_store
+            .add_raw_vector(embedding, id)
+            .await
             .map_err(|e| mimir_core::MimirError::VectorStore(e.to_string()))
     }
-    
+
     /// Add text to the store (converts to embedding first)
     pub async fn add_text(&mut self, id: MemoryId, text: &str) -> VectorResult<()> {
         self.secure_store.add_text(text, id).await
     }
-    
+
     /// Search for similar vectors
     pub async fn search(&self, query: Vec<f32>, k: usize) -> Result<Vec<(MemoryId, f32)>> {
-        let results = self.secure_store.search_raw_vector(&query, k).await
+        let results = self
+            .secure_store
+            .search_raw_vector(&query, k)
+            .await
             .map_err(|e| mimir_core::MimirError::VectorStore(e.to_string()))?;
-        
+
         // Convert SearchResult to (MemoryId, f32) format for backward compatibility
-        let converted_results = results.into_iter()
-            .map(|r| (r.id, r.similarity))
-            .collect();
-        
+        let converted_results = results.into_iter().map(|r| (r.id, r.similarity)).collect();
+
         Ok(converted_results)
     }
-    
+
     /// Search for similar text (converts to embedding first)
-    pub async fn search_text(&mut self, query: &str, k: usize) -> VectorResult<Vec<(MemoryId, f32)>> {
+    pub async fn search_text(
+        &mut self,
+        query: &str,
+        k: usize,
+    ) -> VectorResult<Vec<(MemoryId, f32)>> {
         let results = self.secure_store.search_text(query, k).await?;
-        
+
         // Convert SearchResult to (MemoryId, f32) format for backward compatibility
-        let converted_results = results.into_iter()
-            .map(|r| (r.id, r.similarity))
-            .collect();
-        
+        let converted_results = results.into_iter().map(|r| (r.id, r.similarity)).collect();
+
         Ok(converted_results)
     }
-    
+
     /// Search for similar vectors and return detailed results
-    pub async fn search_detailed(&self, query: Vec<f32>, k: usize) -> VectorResult<Vec<SearchResult>> {
+    pub async fn search_detailed(
+        &self,
+        query: Vec<f32>,
+        k: usize,
+    ) -> VectorResult<Vec<SearchResult>> {
         self.secure_store.search_raw_vector(&query, k).await
     }
-    
+
     /// Search for similar text and return detailed results
-    pub async fn search_text_detailed(&mut self, query: &str, k: usize) -> VectorResult<Vec<SearchResult>> {
+    pub async fn search_text_detailed(
+        &mut self,
+        query: &str,
+        k: usize,
+    ) -> VectorResult<Vec<SearchResult>> {
         self.secure_store.search_text(query, k).await
     }
-    
+
     /// Remove a vector from the store
     pub async fn remove_vector(&mut self, id: MemoryId) -> VectorResult<()> {
         self.secure_store.remove_vector(id).await
     }
-    
+
     /// Check if embedder is available
     pub fn has_embedder(&self) -> bool {
         self.secure_store.has_embedder()
     }
-    
+
     /// Check if rotation matrix is available
     pub fn has_rotation(&self) -> bool {
         self.secure_store.has_rotation()
     }
-    
+
     /// Get embedding dimension
     pub fn embedding_dimension(&self) -> Option<usize> {
         self.secure_store.embedding_dimension()
     }
-    
+
     /// Get the number of vectors in the store
     pub fn len(&self) -> usize {
         self.secure_store.len()
     }
-    
+
     /// Check if the store is empty
     pub fn is_empty(&self) -> bool {
         self.secure_store.is_empty()
     }
-    
+
     /// Check if a memory ID exists in the store
     pub fn contains(&self, id: &MemoryId) -> bool {
         self.secure_store.contains(id)
@@ -179,7 +200,7 @@ mod tests {
         // Just verify it can be created without panicking
         drop(store);
     }
-    
+
     #[test]
     fn test_vector_store_without_embedder() {
         let store = VectorStore::new();
@@ -211,7 +232,7 @@ mod tests {
             let result = store.add_vector(memory_id, embedding).await;
             assert!(result.is_ok(), "Failed to add vector {}", i);
         }
-        
+
         assert_eq!(store.len(), 10);
     }
 
@@ -221,7 +242,10 @@ mod tests {
         let memory_id = Uuid::new_v4();
         let embedding = generate_test_embedding(768);
 
-        store.add_vector(memory_id, embedding.clone()).await.unwrap();
+        store
+            .add_vector(memory_id, embedding.clone())
+            .await
+            .unwrap();
 
         let results = store.search(embedding, 5).await.unwrap();
         assert_eq!(results.len(), 1);
@@ -258,7 +282,10 @@ mod tests {
         let memory_id = Uuid::new_v4();
         let embedding = generate_test_embedding(768);
 
-        store.add_vector(memory_id, embedding.clone()).await.unwrap();
+        store
+            .add_vector(memory_id, embedding.clone())
+            .await
+            .unwrap();
 
         let results = store.search_detailed(embedding, 5).await.unwrap();
         assert_eq!(results.len(), 1);
@@ -285,7 +312,7 @@ mod tests {
         let embedding2 = generate_test_embedding(768);
 
         store.add_vector(memory_id, embedding1).await.unwrap();
-        
+
         let result = store.add_vector(memory_id, embedding2).await;
         assert!(result.is_err());
     }
@@ -296,7 +323,10 @@ mod tests {
         let memory_id = Uuid::new_v4();
         let embedding = generate_test_embedding(768);
 
-        store.add_vector(memory_id, embedding.clone()).await.unwrap();
+        store
+            .add_vector(memory_id, embedding.clone())
+            .await
+            .unwrap();
 
         for k in [1, 5, 10, 50] {
             let results = store.search(embedding.clone(), k).await.unwrap();
@@ -313,8 +343,14 @@ mod tests {
         let embedding2 = generate_test_embedding(768);
 
         // Sequential operations (concurrent would require Arc<Mutex<>>)
-        store.add_vector(memory_id1, embedding1.clone()).await.unwrap();
-        store.add_vector(memory_id2, embedding2.clone()).await.unwrap();
+        store
+            .add_vector(memory_id1, embedding1.clone())
+            .await
+            .unwrap();
+        store
+            .add_vector(memory_id2, embedding2.clone())
+            .await
+            .unwrap();
 
         let results1 = store.search(embedding1, 1).await.unwrap();
         let results2 = store.search(embedding2, 1).await.unwrap();
@@ -329,41 +365,41 @@ mod tests {
     #[tokio::test]
     async fn test_search_with_meaningful_vectors() {
         let mut store = VectorStore::new();
-        
+
         // Create vectors with meaningful patterns (normalized to unit length)
         let vector_a = vec![1.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]; // Unit vector in first dimension
         let vector_b = vec![0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]; // Unit vector in second dimension
         let vector_c = vec![0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 0.0]; // Unit vector in third dimension
         let vector_d = vec![0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0]; // Unit vector in fourth dimension
-        
+
         // Pad to 768 dimensions (fill with zeros)
         let pad_size = 768 - 8;
         let vector_a = [vector_a, vec![0.0; pad_size]].concat();
         let vector_b = [vector_b, vec![0.0; pad_size]].concat();
         let vector_c = [vector_c, vec![0.0; pad_size]].concat();
         let vector_d = [vector_d, vec![0.0; pad_size]].concat();
-        
+
         // Add vectors to store
         let id_a = Uuid::new_v4();
         let id_b = Uuid::new_v4();
         let id_c = Uuid::new_v4();
         let id_d = Uuid::new_v4();
-        
+
         store.add_vector(id_a, vector_a.clone()).await.unwrap();
         store.add_vector(id_b, vector_b.clone()).await.unwrap();
         store.add_vector(id_c, vector_c.clone()).await.unwrap();
         store.add_vector(id_d, vector_d.clone()).await.unwrap();
-        
+
         assert_eq!(store.len(), 4);
-        
+
         // Test 1: Search for vector_a should return vector_a as most similar
         let results_a = store.search(vector_a.clone(), 4).await.unwrap();
         assert_eq!(results_a.len(), 4);
-        
+
         // First result should be vector_a itself (perfect match)
         assert_eq!(results_a[0].0, id_a);
         assert!((results_a[0].1 - 1.0).abs() < 1e-6); // Should be very close to 1.0
-        
+
         // Test 2: Search should be deterministic (same query returns same results)
         let results_a2 = store.search(vector_a.clone(), 4).await.unwrap();
         assert_eq!(results_a.len(), results_a2.len());
@@ -371,19 +407,19 @@ mod tests {
             assert_eq!(r1.0, r2.0);
             assert!((r1.1 - r2.1).abs() < 1e-6);
         }
-        
+
         // Test 3: Search for vector_b should return vector_b as most similar
         let results_b = store.search(vector_b.clone(), 4).await.unwrap();
         assert_eq!(results_b.len(), 4);
         assert_eq!(results_b[0].0, id_b);
         assert!((results_b[0].1 - 1.0).abs() < 1e-6);
-        
+
         // Test 4: All results should contain all vectors (since we're searching for all 4)
         let all_ids = vec![id_a, id_b, id_c, id_d];
         for result in &results_a {
             assert!(all_ids.contains(&result.0));
         }
-        
+
         // Test 5: Results should be ordered by similarity (descending) for the first result
         assert!(results_a[0].1 >= results_a[1].1);
         assert!(results_a[0].1 >= results_a[2].1);
@@ -393,40 +429,40 @@ mod tests {
     #[tokio::test]
     async fn test_search_with_similar_vectors() {
         let mut store = VectorStore::new();
-        
+
         // Create vectors with known similarities
         let vector_1 = vec![1.0, 0.0, 0.0]; // Unit vector
         let vector_2 = vec![0.9, 0.1, 0.0]; // Similar to vector_1
         let vector_3 = vec![0.0, 1.0, 0.0]; // Orthogonal to both
-        
+
         // Pad to 768 dimensions
         let pad_size = 768 - 3;
         let vector_1 = [vector_1, vec![0.0; pad_size]].concat();
         let vector_2 = [vector_2, vec![0.0; pad_size]].concat();
         let vector_3 = [vector_3, vec![0.0; pad_size]].concat();
-        
+
         let id_1 = Uuid::new_v4();
         let id_2 = Uuid::new_v4();
         let id_3 = Uuid::new_v4();
-        
+
         store.add_vector(id_1, vector_1.clone()).await.unwrap();
         store.add_vector(id_2, vector_2.clone()).await.unwrap();
         store.add_vector(id_3, vector_3.clone()).await.unwrap();
-        
+
         // Search for vector_1
         let results = store.search(vector_1.clone(), 3).await.unwrap();
         assert_eq!(results.len(), 3);
-        
+
         // vector_1 should be first (perfect match)
         assert_eq!(results[0].0, id_1);
         assert!((results[0].1 - 1.0).abs() < 1e-6);
-        
+
         // vector_2 should be second (most similar)
         assert_eq!(results[1].0, id_2);
-        
+
         // vector_3 should be last (least similar)
         assert_eq!(results[2].0, id_3);
-        
+
         // Verify similarity ordering
         assert!(results[0].1 > results[1].1);
         assert!(results[1].1 > results[2].1);
@@ -435,43 +471,43 @@ mod tests {
     #[tokio::test]
     async fn test_search_detailed_with_meaningful_vectors() {
         let mut store = VectorStore::new();
-        
+
         // Create vectors with meaningful patterns
         let vector_1 = vec![1.0, 0.0, 0.0]; // Unit vector
         let vector_2 = vec![0.7071068, 0.7071068, 0.0]; // Normalized vector at 45 degrees
         let vector_3 = vec![0.0, 1.0, 0.0]; // Orthogonal to both
-        
+
         // Pad to 768 dimensions
         let pad_size = 768 - 3;
         let vector_1 = [vector_1, vec![0.0; pad_size]].concat();
         let vector_2 = [vector_2, vec![0.0; pad_size]].concat();
         let vector_3 = [vector_3, vec![0.0; pad_size]].concat();
-        
+
         let id_1 = Uuid::new_v4();
         let id_2 = Uuid::new_v4();
         let id_3 = Uuid::new_v4();
-        
+
         store.add_vector(id_1, vector_1.clone()).await.unwrap();
         store.add_vector(id_2, vector_2.clone()).await.unwrap();
         store.add_vector(id_3, vector_3.clone()).await.unwrap();
-        
+
         // Search with detailed results
         let results = store.search_detailed(vector_1.clone(), 3).await.unwrap();
         assert_eq!(results.len(), 3);
-        
+
         // vector_1 should be first (perfect match)
         assert_eq!(results[0].id, id_1);
         assert!(results[0].distance < 1e-6);
         assert!((results[0].similarity - 1.0).abs() < 1e-6);
-        
+
         // vector_2 should be second (cosine similarity ≈ 0.707)
         assert_eq!(results[1].id, id_2);
         assert!((results[1].similarity - 0.707).abs() < 0.01);
-        
+
         // vector_3 should be last (orthogonal, cosine similarity ≈ 0)
         assert_eq!(results[2].id, id_3);
         assert!(results[2].similarity < 0.01);
-        
+
         // Verify distance and similarity relationship
         for result in &results {
             assert!((result.similarity - (1.0 - result.distance)).abs() < 1e-6);

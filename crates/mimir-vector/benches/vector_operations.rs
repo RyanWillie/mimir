@@ -1,7 +1,8 @@
 use criterion::{black_box, criterion_group, criterion_main, BenchmarkId, Criterion};
-use mimir_vector::VectorStore;
+use mimir_vector::{VectorStore, ThreadSafeVectorStore, MemoryConfig, BatchConfig};
 use std::time::Duration;
 use uuid::Uuid;
+use tempfile::TempDir;
 
 fn generate_random_vector(dim: usize) -> Vec<f32> {
     (0..dim).map(|i| (i as f32 * 0.1) % 1.0).collect()
@@ -296,6 +297,130 @@ fn bench_vector_batch_operations(c: &mut Criterion) {
     group.finish();
 }
 
+fn bench_thread_safe_store_creation(c: &mut Criterion) {
+    c.bench_function("thread_safe_store_creation", |b| {
+        b.iter(|| {
+            let temp_dir = TempDir::new().unwrap();
+            let store = black_box(ThreadSafeVectorStore::new(temp_dir.path(), 768, None, None).unwrap());
+            black_box(store)
+        })
+    });
+}
+
+fn bench_thread_safe_add_vectors(c: &mut Criterion) {
+    let mut group = c.benchmark_group("thread_safe_add_vectors");
+    group.measurement_time(Duration::from_secs(10));
+
+    let dimensions = vec![128, 256, 384, 512];
+    let vector_counts = vec![10, 100, 1000];
+
+    for dim in dimensions {
+        for count in &vector_counts {
+            group.bench_with_input(
+                BenchmarkId::new(format!("thread_safe_add_vectors_{}d", dim), count),
+                count,
+                |b, &count| {
+                    b.iter_batched(
+                        || {
+                            let temp_dir = TempDir::new().unwrap();
+                            let store = ThreadSafeVectorStore::new(temp_dir.path(), dim, None, None).unwrap();
+                            let vectors: Vec<(Uuid, Vec<f32>)> = (0..count)
+                                .map(|_| (Uuid::new_v4(), generate_random_vector(dim)))
+                                .collect();
+                            (store, vectors)
+                        },
+                        |(store, vectors)| {
+                            tokio_test::block_on(async {
+                                for (id, vector) in vectors {
+                                    let _ = black_box(store.add_vector(id, vector).await);
+                                }
+                                black_box(store)
+                            })
+                        },
+                        criterion::BatchSize::SmallInput,
+                    )
+                },
+            );
+        }
+    }
+
+    group.finish();
+}
+
+fn bench_thread_safe_search_operations(c: &mut Criterion) {
+    let mut group = c.benchmark_group("thread_safe_search_operations");
+    group.measurement_time(Duration::from_secs(10));
+
+    let dimensions = vec![128, 256, 384, 512];
+    let k_values = vec![1, 5, 10, 50];
+
+    for dim in dimensions {
+        for k in &k_values {
+            group.bench_with_input(
+                BenchmarkId::new(format!("thread_safe_search_{}d", dim), k),
+                k,
+                |b, &k| {
+                    b.iter_batched(
+                        || {
+                            let temp_dir = TempDir::new().unwrap();
+                            let store = ThreadSafeVectorStore::new(temp_dir.path(), dim, None, None).unwrap();
+                            let query_vector = generate_random_vector(dim);
+                            (store, query_vector)
+                        },
+                        |(store, query_vector)| {
+                            tokio_test::block_on(async {
+                                let results = black_box(store.search(query_vector, k).await.unwrap());
+                                black_box(results)
+                            })
+                        },
+                        criterion::BatchSize::SmallInput,
+                    )
+                },
+            );
+        }
+    }
+
+    group.finish();
+}
+
+fn bench_batch_operations(c: &mut Criterion) {
+    let mut group = c.benchmark_group("batch_operations");
+    group.measurement_time(Duration::from_secs(15));
+
+    let batch_sizes = vec![10, 50, 100, 500];
+    let batch_config = BatchConfig::default();
+
+    for batch_size in batch_sizes {
+        group.bench_with_input(
+            BenchmarkId::new("batch_insert", batch_size),
+            &batch_size,
+            |b, &batch_size| {
+                b.iter_batched(
+                    || {
+                        let temp_dir = TempDir::new().unwrap();
+                        let store = ThreadSafeVectorStore::new(temp_dir.path(), 384, None, Some(batch_config.clone())).unwrap();
+                        let vectors: Vec<mimir_vector::VectorInsert> = (0..batch_size)
+                            .map(|_| mimir_vector::VectorInsert {
+                                memory_id: Uuid::new_v4(),
+                                vector: generate_random_vector(384),
+                            })
+                            .collect();
+                        (store, vectors)
+                    },
+                    |(store, vectors)| {
+                        tokio_test::block_on(async {
+                            let _ = black_box(store.batch_insert(vectors).await);
+                        })
+                    },
+                    criterion::BatchSize::SmallInput,
+                )
+            },
+        );
+    }
+
+    group.finish();
+}
+
 criterion_group!(
     benches,
     bench_vector_store_creation,
@@ -306,7 +431,11 @@ criterion_group!(
     bench_concurrent_operations,
     bench_vector_normalization,
     bench_distance_calculations,
-    bench_vector_batch_operations
+    bench_vector_batch_operations,
+    bench_thread_safe_store_creation,
+    bench_thread_safe_add_vectors,
+    bench_thread_safe_search_operations,
+    bench_batch_operations
 );
 
 criterion_main!(benches);

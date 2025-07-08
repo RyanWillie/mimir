@@ -7,6 +7,10 @@ pub mod embedder;
 pub mod error;
 pub mod hnsw_store;
 pub mod rotation;
+pub mod persistence;
+pub mod memory_manager;
+pub mod batch_ops;
+pub mod thread_safe_store;
 
 use error::VectorResult;
 use hnsw_store::SecureVectorStore;
@@ -182,10 +186,47 @@ impl<'a> VectorStore<'a> {
     pub fn contains(&self, id: &MemoryId) -> bool {
         self.secure_store.contains(id)
     }
+    
+    /// Create a new thread-safe vector store with persistence
+    pub async fn new_thread_safe<P: AsRef<Path>>(
+        vault_path: P,
+        dimension: usize,
+    ) -> VectorResult<ThreadSafeVectorStore> {
+        ThreadSafeVectorStore::new(vault_path, dimension, None, None)
+    }
+    
+    /// Create a new thread-safe vector store with embedder and persistence
+    pub async fn new_thread_safe_with_embedder<P: AsRef<Path>>(
+        vault_path: P,
+        model_path: P,
+    ) -> VectorResult<ThreadSafeVectorStore> {
+        ThreadSafeVectorStore::with_embedder(vault_path, model_path, None, None).await
+    }
+    
+    /// Create a new thread-safe vector store with embedder, rotation, and persistence
+    pub async fn new_thread_safe_with_embedder_and_rotation<P: AsRef<Path>>(
+        vault_path: P,
+        model_path: P,
+        root_key: &mimir_core::crypto::RootKey,
+    ) -> VectorResult<ThreadSafeVectorStore> {
+        ThreadSafeVectorStore::with_embedder_and_rotation(vault_path, model_path, root_key, None, None).await
+    }
+    
+    /// Load an existing thread-safe vector store from disk
+    pub async fn load_thread_safe<P: AsRef<Path>>(
+        vault_path: P,
+        root_key: Option<&mimir_core::crypto::RootKey>,
+    ) -> VectorResult<Option<ThreadSafeVectorStore>> {
+        ThreadSafeVectorStore::load(vault_path, root_key, None, None).await
+    }
 }
 
-// Re-export SearchResult for convenience
+// Re-export types for convenience
 pub use hnsw_store::SearchResult;
+pub use thread_safe_store::ThreadSafeVectorStore;
+pub use memory_manager::{MemoryConfig, MemoryStats};
+pub use batch_ops::{BatchConfig, VectorInsert, SearchQuery, BatchOperationsBuilder};
+pub use persistence::VectorStorePersistence;
 
 #[cfg(test)]
 mod tests {
@@ -533,16 +574,100 @@ mod tests {
 
     // Tests for embedder integration (requires actual model)
     #[tokio::test]
-    #[ignore = "Requires actual ONNX model"]
     async fn test_with_embedder() {
-        // This test would require the actual BGE model to be present
-        // For now, we'll skip it
+        use std::path::PathBuf;
+        use mimir_core::test_utils::generators::generate_test_embedding;
+        use uuid::Uuid;
+
+        // Use the same model path logic as with_default_embedder
+        let model_path = if let Ok(workspace_root) = std::env::var("CARGO_WORKSPACE_DIR") {
+            PathBuf::from(workspace_root)
+                .join("crates/mimir/assets/bge-small-en-int8/model-int8.onnx")
+        } else {
+            let mut path = std::env::current_dir().unwrap();
+            if path.ends_with("mimir-vector") {
+                path.pop();
+                path.pop();
+            }
+            path.join("crates/mimir/assets/bge-small-en-int8/model-int8.onnx")
+        };
+        assert!(model_path.exists(), "Model file not found at {}", model_path.display());
+
+        // Create the store with embedder
+        let mut store = VectorStore::with_embedder(&model_path).await.unwrap();
+        assert!(store.has_embedder());
+        assert!(!store.has_rotation()); // No rotation matrix
+        let dim = store.embedding_dimension().unwrap();
+        assert!(dim > 0);
+
+        // Add a vector
+        let memory_id = Uuid::new_v4();
+        let embedding = generate_test_embedding(dim);
+        store.add_vector(memory_id, embedding.clone()).await.unwrap();
+        assert_eq!(store.len(), 1);
+        assert!(store.contains(&memory_id));
+
+        // Search for the vector
+        let results = store.search(embedding, 5).await.unwrap();
+        assert_eq!(results.len(), 1);
+        assert_eq!(results[0].0, memory_id);
+        assert!((results[0].1 - 1.0).abs() < 1e-6);
+
+        // Test text embedding
+        let text_memory_id = Uuid::new_v4();
+        store.add_text(text_memory_id, "Hello world").await.unwrap();
+        assert_eq!(store.len(), 2);
+        assert!(store.contains(&text_memory_id));
+
+        // Search for similar text - should find the text we just added
+        let text_results = store.search_text("Hello world", 5).await.unwrap();
+        assert!(text_results.len() >= 1); // At least one result
+        assert!(text_results.iter().any(|(id, _)| *id == text_memory_id)); // Should find our text
+        assert!(text_results.iter().any(|(_, similarity)| *similarity > 0.9)); // Should have high similarity
     }
 
     #[tokio::test]
-    #[ignore = "Requires actual ONNX model and root key"]
     async fn test_with_embedder_and_rotation() {
-        // This test would require the actual BGE model and a root key
-        // For now, we'll skip it
+        use mimir_core::crypto::RootKey;
+        use std::path::PathBuf;
+        use mimir_core::test_utils::generators::generate_test_embedding;
+        use uuid::Uuid;
+
+        // Use the same model path logic as with_default_embedder_and_rotation
+        let model_path = if let Ok(workspace_root) = std::env::var("CARGO_WORKSPACE_DIR") {
+            PathBuf::from(workspace_root)
+                .join("crates/mimir/assets/bge-small-en-int8/model-int8.onnx")
+        } else {
+            let mut path = std::env::current_dir().unwrap();
+            if path.ends_with("mimir-vector") {
+                path.pop();
+                path.pop();
+            }
+            path.join("crates/mimir/assets/bge-small-en-int8/model-int8.onnx")
+        };
+        assert!(model_path.exists(), "Model file not found at {}", model_path.display());
+
+        // Generate a root key
+        let root_key = RootKey::new().unwrap();
+
+        // Create the store
+        let mut store = VectorStore::with_embedder_and_rotation(&model_path, &root_key).await.unwrap();
+        assert!(store.has_embedder());
+        assert!(store.has_rotation());
+        let dim = store.embedding_dimension().unwrap();
+        assert!(dim > 0);
+
+        // Add a vector
+        let memory_id = Uuid::new_v4();
+        let embedding = generate_test_embedding(dim);
+        store.add_vector(memory_id, embedding.clone()).await.unwrap();
+        assert_eq!(store.len(), 1);
+        assert!(store.contains(&memory_id));
+
+        // Search for the vector
+        let results = store.search(embedding, 5).await.unwrap();
+        assert_eq!(results.len(), 1);
+        assert_eq!(results[0].0, memory_id);
+        assert!((results[0].1 - 1.0).abs() < 1e-6);
     }
 }

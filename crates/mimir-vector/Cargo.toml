@@ -41,6 +41,21 @@ memmap2 = "0.9"
 # Cryptography for HKDF
 ring = "0.17"
 
+# Efficient serialization
+bincode = "1.3"
+
+# Better mutex performance
+parking_lot = "0.12"
+
+# Concurrent operations
+crossbeam = "0.8"
+
+# CPU detection
+num_cpus = "1.16"
+
+# Time handling
+chrono = { version = "0.4", features = ["serde"] }
+
 [dev-dependencies]
 mimir-core = { path = "../mimir-core", features = ["test-utils"] }
 tokio-test.workspace = true

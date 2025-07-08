@@ -39,6 +39,12 @@ impl<'a> VectorStore<'a> {
         Self { secure_store }
     }
 
+    /// Create a new vector store with specified dimension
+    pub fn with_dimension(dimension: usize) -> VectorResult<Self> {
+        let secure_store = SecureVectorStore::new(dimension)?;
+        Ok(Self { secure_store })
+    }
+
     /// Create a new vector store with embedding model
     pub async fn with_embedder<P: AsRef<Path>>(model_path: P) -> VectorResult<Self> {
         let secure_store = SecureVectorStore::with_embedder(model_path).await?;

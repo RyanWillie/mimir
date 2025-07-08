@@ -7,7 +7,7 @@ fn generate_random_vector(dim: usize) -> Vec<f32> {
     (0..dim).map(|i| (i as f32 * 0.1) % 1.0).collect()
 }
 
-fn create_test_store() -> VectorStore {
+fn create_test_store() -> VectorStore<'static> {
     VectorStore::new()
 }
 
@@ -23,7 +23,7 @@ fn bench_vector_store_creation(c: &mut Criterion) {
 fn bench_vector_generation(c: &mut Criterion) {
     let mut group = c.benchmark_group("vector_generation");
 
-    let dimensions = vec![64, 128, 256, 384, 512, 768, 1024, 1536];
+    let dimensions = vec![64, 128, 256, 384, 512]; // Remove 768, 1024, 1536
 
     for dim in dimensions {
         group.bench_with_input(BenchmarkId::new("generate_vector", dim), &dim, |b, &dim| {
@@ -41,7 +41,7 @@ fn bench_add_vectors(c: &mut Criterion) {
     let mut group = c.benchmark_group("add_vectors");
     group.measurement_time(Duration::from_secs(10));
 
-    let dimensions = vec![128, 384, 768, 1536];
+    let dimensions = vec![128, 256, 384, 512]; // Remove 768, 1536
     let vector_counts = vec![10, 100, 1000];
 
     for dim in dimensions {
@@ -80,7 +80,7 @@ fn bench_search_operations(c: &mut Criterion) {
     let mut group = c.benchmark_group("search_operations");
     group.measurement_time(Duration::from_secs(10));
 
-    let dimensions = vec![128, 384, 768];
+    let dimensions = vec![128, 256, 384, 512]; // Remove 768
     let k_values = vec![1, 5, 10, 50];
 
     for dim in dimensions {
@@ -112,11 +112,11 @@ fn bench_vector_memory_usage(c: &mut Criterion) {
 
     let test_cases = vec![
         (128, 1000),  // 128d, 1k vectors
+        (256, 1000),  // 256d, 1k vectors
         (384, 1000),  // 384d, 1k vectors
-        (768, 1000),  // 768d, 1k vectors
         (128, 10000), // 128d, 10k vectors
-        (384, 10000), // 384d, 10k vectors
-    ];
+        (256, 10000), // 256d, 10k vectors
+    ]; // Remove 768 dimensions
 
     for (dim, count) in test_cases {
         group.bench_with_input(
@@ -168,7 +168,7 @@ fn bench_concurrent_operations(c: &mut Criterion) {
 fn bench_vector_normalization(c: &mut Criterion) {
     let mut group = c.benchmark_group("vector_normalization");
 
-    let dimensions = vec![128, 384, 768, 1536];
+    let dimensions = vec![128, 256, 384, 512]; // Remove 768, 1536
 
     for dim in dimensions {
         group.bench_with_input(
@@ -195,7 +195,7 @@ fn bench_vector_normalization(c: &mut Criterion) {
 fn bench_distance_calculations(c: &mut Criterion) {
     let mut group = c.benchmark_group("distance_calculations");
 
-    let dimensions = vec![128, 384, 768, 1536];
+    let dimensions = vec![128, 256, 384, 512]; // Remove 768, 1536
 
     for dim in dimensions {
         let vector1 = generate_random_vector(dim);

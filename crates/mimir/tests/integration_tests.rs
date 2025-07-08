@@ -5,13 +5,13 @@
 
 use axum::http::StatusCode;
 use axum_test::TestServer;
-use mimir_core::{config::MimirConfig, test_utils::env::create_temp_dir};
+use mimir_core::{config::Config, test_utils::env::create_temp_dir};
 use serial_test::serial;
 use std::time::Duration;
 use tokio::time::timeout;
 
 /// Helper to create a test server with custom configuration
-async fn create_test_server(config: MimirConfig) -> TestServer {
+async fn create_test_server(config: Config) -> TestServer {
     let app = mimir::create_app(config)
         .await
         .expect("Failed to create app");
@@ -20,15 +20,16 @@ async fn create_test_server(config: MimirConfig) -> TestServer {
 
 /// Helper to create a test server with default configuration
 async fn create_default_test_server() -> TestServer {
-    let mut config = MimirConfig::default();
+    let mut config = Config::default();
 
     // Use a random available port for testing
     config.server.port = 0;
 
     // Use temporary directories for test isolation
     let temp_dir = create_temp_dir();
-    config.storage.vault_path = temp_dir.path().join("test_vault.db");
-    config.security.master_key_path = temp_dir.path().join("test_master.key");
+    config.vault_path = temp_dir.path().join("test_vault");
+    config.database_path = temp_dir.path().join("test_vault.db");
+    config.keyset_path = temp_dir.path().join("test_keyset.json");
 
     create_test_server(config).await
 }
@@ -76,7 +77,7 @@ async fn test_health_endpoint_multiple_requests() {
 
 #[tokio::test]
 async fn test_server_configuration_custom_host() {
-    let mut config = MimirConfig::default();
+    let mut config = Config::default();
     config.server.host = "0.0.0.0".to_string();
     config.server.port = 0; // Use random port
 
@@ -156,7 +157,7 @@ async fn test_server_headers() {
 #[serial] // Run serially to avoid port conflicts
 async fn test_server_startup_shutdown() {
     // Test that server can start and stop cleanly
-    let config = MimirConfig::default();
+    let config = Config::default();
     let _temp_dir = create_temp_dir();
 
     // This would test the actual server startup if we had a way to shut it down gracefully

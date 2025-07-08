@@ -130,14 +130,14 @@ impl Embedder {
         }
         
         let embedding_dim = shape[shape.len() - 1];
-        if embedding_dim <= 0 {
+        if embedding_dim == 0 {
             return Err(VectorError::OnnxModel(format!(
                 "Invalid embedding dimension: {}",
                 embedding_dim
             )));
         }
-        
-        Ok(embedding_dim as usize)
+
+        Ok(embedding_dim)
     }
     
     /// Generate embedding for text input

@@ -81,8 +81,14 @@ async fn main() -> Result<()> {
             let vault_dir = match path {
                 Some(p) => {
                     let vault_path = std::path::PathBuf::from(p);
-                    config.set_vault_path(&vault_path);
-                    vault_path
+                    // Convert to absolute path if it's relative
+                    let absolute_vault_path = if vault_path.is_relative() {
+                        std::env::current_dir()?.join(&vault_path)
+                    } else {
+                        vault_path.clone()
+                    };
+                    config.set_vault_path(&absolute_vault_path);
+                    absolute_vault_path
                 }
                 None => config.get_vault_path().clone(),
             };

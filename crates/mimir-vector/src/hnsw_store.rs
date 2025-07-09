@@ -32,6 +32,7 @@ pub struct SecureVectorStore<'a> {
     next_id: usize,                            // Use usize to match HNSW expectations
     id_mapping: HashMap<usize, MemoryId>,      // Map internal IDs to MemoryIds
     reverse_mapping: HashMap<MemoryId, usize>, // Map MemoryIds to internal IDs
+    original_vectors: HashMap<usize, Vec<f32>>, // Store original vectors for persistence
 }
 
 impl<'a> SecureVectorStore<'a> {
@@ -65,6 +66,7 @@ impl<'a> SecureVectorStore<'a> {
             next_id: 0,
             id_mapping: HashMap::new(),
             reverse_mapping: HashMap::new(),
+            original_vectors: HashMap::new(),
         })
     }
 
@@ -125,6 +127,9 @@ impl<'a> SecureVectorStore<'a> {
             )));
         }
 
+        // Store original vector for persistence (before rotation)
+        let original_vector = vector.clone();
+
         // Apply rotation if configured
         let vector_to_store = if let Some(rotation_matrix) = &self.rotation_matrix {
             rotation_matrix.rotate_vector(&vector)?
@@ -135,6 +140,9 @@ impl<'a> SecureVectorStore<'a> {
         // Add to HNSW with internal ID
         let internal_id = self.next_id;
         self.hnsw.insert((&vector_to_store, internal_id));
+
+        // Store original vector for persistence
+        self.original_vectors.insert(internal_id, original_vector);
 
         // Update mappings
         self.id_mapping.insert(internal_id, memory_id);
@@ -256,6 +264,23 @@ impl<'a> SecureVectorStore<'a> {
         self.embedder.as_ref().map(|e| e.embedding_dimension())
     }
 
+    /// Attach an embedder to the store
+    pub async fn attach_embedder<P: AsRef<Path>>(&mut self, model_path: P) -> VectorResult<()> {
+        let embedder = Embedder::new(model_path).await?;
+        let dimension = embedder.embedding_dimension();
+        
+        // Verify dimension matches
+        if dimension != self.dimension {
+            return Err(VectorError::DimensionMismatch {
+                expected: self.dimension,
+                actual: dimension,
+            });
+        }
+        
+        self.embedder = Some(embedder);
+        Ok(())
+    }
+
     /// Check if a memory ID exists in the store
     pub fn contains(&self, memory_id: &MemoryId) -> bool {
         self.reverse_mapping.contains_key(memory_id)
@@ -270,13 +295,15 @@ impl<'a> SecureVectorStore<'a> {
     pub fn get_vector_data_for_persistence(&self) -> VectorResult<VectorDataForPersistence> {
         let mut vectors = Vec::new();
         
-        // Extract vectors from HNSW index (simplified for now)
-        // In a full implementation, we'd iterate through the HNSW index
+        // Extract original vectors that were stored
         for (internal_id, _memory_id) in &self.id_mapping {
-            // For now, we'll create placeholder vectors
-            // In reality, we'd need to extract the actual vectors from HNSW
-            let vector = vec![0.0; self.dimension];
-            vectors.push((*internal_id, vector));
+            if let Some(vector) = self.original_vectors.get(internal_id) {
+                vectors.push((*internal_id, vector.clone()));
+            } else {
+                return Err(VectorError::InvalidInput(
+                    format!("Missing original vector for internal ID {}", internal_id)
+                ));
+            }
         }
         
         Ok(VectorDataForPersistence {
@@ -297,8 +324,14 @@ impl<'a> SecureVectorStore<'a> {
         self.reverse_mapping = data.reverse_mapping;
         self.next_id = next_id;
         
-        // Rebuild HNSW index from vectors
+        // Clear existing original vectors
+        self.original_vectors.clear();
+        
+        // Rebuild HNSW index from vectors and store original vectors
         for (internal_id, vector) in data.vectors {
+            // Store original vector
+            self.original_vectors.insert(internal_id, vector.clone());
+            
             // Apply rotation if configured
             let vector_to_store = if let Some(rotation_matrix) = &self.rotation_matrix {
                 rotation_matrix.rotate_vector(&vector)?

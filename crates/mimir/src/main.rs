@@ -6,11 +6,12 @@ use clap::{Parser, Subcommand};
 use mimir_core::{Config, Result};
 use rmcp::ServiceExt;
 use std::path::PathBuf;
-use tracing::{error, info};
+use tracing::{error, info, warn};
 use crate::vault::{ensure_vault_ready, check_vault_status};
 
 mod mcp;
 mod server;
+mod storage;
 mod vault;
 
 /// Mimir - Local-First AI Memory Vault
@@ -74,19 +75,27 @@ async fn main() -> Result<()> {
     info!("Starting Mimir v{}", env!("CARGO_PKG_VERSION"));
 
     // Load configuration
-    let mut config = Config::default();
+    let mut config = Config::load().unwrap_or_else(|_| {
+        info!("No configuration file found, using defaults");
+        Config::default()
+    });
+    
     if let Some(port) = cli.port {
         config.server.port = port;
     }
 
-    // TODO: Load from config file if provided
+    // Load from specific config file if provided
     if let Some(config_path) = cli.config {
         info!("Loading configuration from: {}", config_path.display());
-        // TODO: Implement config file loading
+        config = Config::load_from(&config_path)
+            .map_err(|e| mimir_core::MimirError::Config(format!("Failed to load config: {}", e)))?;
     }
 
     // Check vault status and auto-initialize if needed
     info!("Checking vault status...");
+    info!("Config vault path: {}", config.get_vault_path().display());
+    info!("Config database path: {}", config.get_database_path().display());
+    info!("Config keyset path: {}", config.get_keyset_path().display());
     let vault_status = check_vault_status(&config);
     info!("{}", vault_status.status_message());
     
@@ -150,25 +159,127 @@ async fn start_http_server(config: Config) -> Result<()> {
     }
 }
 
-async fn start_mcp_server(_config: Config) -> Result<()> {
+async fn start_mcp_server(config: Config) -> Result<()> {
     info!("Starting MCP server");
     
-    // Create the MCP server
-    let mcp_server = mcp::MimirServer::new();
+    // Handle password encryption
+    let (db_crypto_manager, storage_crypto_manager) = if config.use_password_encryption {
+        info!("Password encryption detected. Please enter your vault password:");
+        
+        // Read password from stdin
+        let mut password = String::new();
+        std::io::stdin().read_line(&mut password)
+            .map_err(|e| mimir_core::MimirError::Initialization(format!("Failed to read password: {}", e)))?;
+        let password = password.trim();
+        
+        if password.is_empty() {
+            return Err(mimir_core::MimirError::Initialization("Password cannot be empty".to_string()));
+        }
+        
+        info!("Attempting to unlock vault with provided password...");
+        
+        let db_crypto_manager = mimir_core::crypto::CryptoManager::with_password(&config.get_keyset_path(), password)?;
+        let storage_crypto_manager = mimir_core::crypto::CryptoManager::with_password(&config.get_keyset_path(), password)?;
+        
+        (db_crypto_manager, storage_crypto_manager)
+    } else {
+        let db_crypto_manager = mimir_core::crypto::CryptoManager::new(&config.get_keyset_path())?;
+        let storage_crypto_manager = mimir_core::crypto::CryptoManager::new(&config.get_keyset_path())?;
+        (db_crypto_manager, storage_crypto_manager)
+    };
     
-    // Add sample data
-    mcp_server.add_sample_data().await;
+    // Create database
+    let database = mimir_db::Database::with_crypto_manager(
+        &config.get_database_path(),
+        db_crypto_manager,
+    )?;
+    
+    // Create vector store with embedder using vault path
+    let model_path = std::path::Path::new("crates/mimir/assets/bge-small-en-int8/model-int8.onnx");
+    let vault_path = config.get_vault_path();
+    let vector_store = if model_path.exists() {
+        info!("Loading vector store with embedder from: {}", model_path.display());
+        
+        // First try to load existing vector store data with embedder
+        match mimir_vector::ThreadSafeVectorStore::load_with_embedder(
+            vault_path.as_path(),
+            None, // root_key
+            Some(model_path), // model_path for embedder
+            None, // memory config
+            None, // batch config
+        ).await {
+            Ok(Some(existing_store)) => {
+                info!("✅ Loaded existing vector store with {} vectors and embedder", existing_store.len().await);
+                existing_store
+            }
+            Ok(None) => {
+                info!("No existing vector store found, creating new one with embedder");
+                mimir_vector::ThreadSafeVectorStore::with_embedder(
+                    vault_path.as_path(),
+                    model_path,
+                    None, // memory config
+                    None, // batch config
+                ).await.map_err(|e| mimir_core::MimirError::VectorStore(e.to_string()))?
+            }
+            Err(e) => {
+                warn!("Failed to load existing vector store: {}, creating new one", e);
+                mimir_vector::ThreadSafeVectorStore::with_embedder(
+                    vault_path.as_path(),
+                    model_path,
+                    None, // memory config
+                    None, // batch config
+                ).await.map_err(|e| mimir_core::MimirError::VectorStore(e.to_string()))?
+            }
+        }
+    } else {
+        warn!("Model file not found at {}, creating vector store without embedder", model_path.display());
+        mimir_vector::ThreadSafeVectorStore::new(
+            vault_path.as_path(),
+            128, // dimension
+            None, // memory config
+            None, // batch config
+        ).map_err(|e| mimir_core::MimirError::VectorStore(e.to_string()))?
+    };
+    
+    // Create integrated storage
+    let storage = storage::IntegratedStorage::new(
+        database,
+        vector_store,
+        storage_crypto_manager,
+    ).await?;
+    
+    // Create the MCP server with integrated storage
+    let mcp_server = mcp::MimirServer::new(storage);
     
     // Start the server with stdio transport
-    match mcp_server.serve((tokio::io::stdin(), tokio::io::stdout())).await {
+    let mcp_server_clone = mcp_server.clone();
+    match mcp_server_clone.serve((tokio::io::stdin(), tokio::io::stdout())).await {
         Ok(service) => {
             info!("MCP server connected and ready");
             let quit_reason = service.waiting().await;
             info!("MCP server shutdown: {:?}", quit_reason);
+            
+            // Save vector store on clean shutdown
+            info!("Attempting to save vector store on shutdown...");
+            if let Err(e) = mcp_server.save_vector_store().await {
+                error!("Failed to save vector store on shutdown: {}", e);
+            } else {
+                info!("Vector store saved successfully on shutdown");
+            }
+            
             Ok(())
         }
         Err(e) => {
             error!("MCP server error: {}", e);
+            
+            // Try to save vector store even on error
+            info!("Attempting to save vector store on error shutdown...");
+            if let Err(save_err) = mcp_server.save_vector_store().await {
+                error!("Failed to save vector store on error shutdown: {}", save_err);
+            } else {
+                info!("Vector store saved successfully on error shutdown");
+            }
+            
             Err(mimir_core::MimirError::ServerError(format!("MCP server error: {}", e)))
         }
     }
@@ -188,20 +299,9 @@ async fn start_both_servers(config: Config) -> Result<()> {
     });
     
     let mcp_handle = tokio::spawn(async move {
-        let mcp_server = mcp::MimirServer::new();
-        mcp_server.add_sample_data().await;
-        
-        match mcp_server.serve((tokio::io::stdin(), tokio::io::stdout())).await {
-            Ok(service) => {
-                info!("MCP server connected and ready");
-                if let Err(e) = service.waiting().await {
-                    error!("MCP server error while waiting: {}", e);
-                }
-            }
-            Err(e) => {
-                error!("MCP server error: {}", e);
-            }
-        }
+        // For now, we'll skip MCP server in "both" mode since it requires storage setup
+        // TODO: Implement proper storage setup for both mode
+        info!("MCP server not yet implemented in 'both' mode");
     });
     
     // Wait for both servers (they should run indefinitely)

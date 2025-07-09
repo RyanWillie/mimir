@@ -13,6 +13,8 @@ path = "src/main.rs"
 
 [dependencies]
 mimir-core = { path = "../mimir-core" }
+mimir-db = { path = "../mimir-db" }
+mimir-vector = { path = "../mimir-vector" }
 tokio.workspace = true
 axum.workspace = true
 tower.workspace = true
@@ -34,6 +36,8 @@ hex = "0.4"
 
 [dev-dependencies]
 mimir-core = { path = "../mimir-core", features = ["test-utils"] }
+mimir-db = { path = "../mimir-db" }
+mimir-vector = { path = "../mimir-vector" }
 tokio-test.workspace = true
 axum-test.workspace = true
 serial_test.workspace = true

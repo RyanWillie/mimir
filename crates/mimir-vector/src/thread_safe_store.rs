@@ -6,7 +6,7 @@ use crate::persistence::VectorStorePersistence;
 use crate::memory_manager::{MemoryManager, MemoryConfig};
 use crate::batch_ops::{BatchOperations, BatchConfig, VectorInsert, SearchQuery};
 use mimir_core::{crypto::RootKey, MemoryId};
-use parking_lot::Mutex;
+use tokio::sync::Mutex;
 use std::path::Path;
 use std::sync::Arc;
 
@@ -84,6 +84,17 @@ impl ThreadSafeVectorStore {
         memory_config: Option<MemoryConfig>,
         _batch_config: Option<BatchConfig>,
     ) -> VectorResult<Option<Self>> {
+        Self::load_with_embedder(vault_path, root_key, None, memory_config, _batch_config).await
+    }
+
+    /// Load existing store from disk with optional embedder
+    pub async fn load_with_embedder<P: AsRef<Path>>(
+        vault_path: P,
+        root_key: Option<&RootKey>,
+        model_path: Option<P>,
+        memory_config: Option<MemoryConfig>,
+        _batch_config: Option<BatchConfig>,
+    ) -> VectorResult<Option<Self>> {
         let vault_path = vault_path.as_ref().to_path_buf();
         let persistence = VectorStorePersistence::new(&vault_path);
         
@@ -95,7 +106,14 @@ impl ThreadSafeVectorStore {
         // Clone persistence for the async borrow
         let persistence_for_load = persistence.clone();
         match persistence_for_load.load_store(root_key).await {
-            Ok(Some(store)) => {
+            Ok(Some(mut store)) => {
+                // Attach embedder if model path is provided
+                if let Some(model_path) = model_path {
+                    if let Err(e) = store.attach_embedder(model_path).await {
+                        return Err(e);
+                    }
+                }
+                
                 let memory_manager = MemoryManager::new(memory_config.unwrap_or_default());
                 Ok(Some(Self {
                     store: Arc::new(Mutex::new(store)),
@@ -121,7 +139,7 @@ impl ThreadSafeVectorStore {
         }
         
         // Add to store
-        let mut store = self.store.lock();
+        let mut store = self.store.lock().await;
         store.add_raw_vector(vector, memory_id).await?;
         
         // Record memory usage
@@ -132,7 +150,7 @@ impl ThreadSafeVectorStore {
     
     /// Add text to the store
     pub async fn add_text(&self, memory_id: MemoryId, text: &str) -> VectorResult<()> {
-        let mut store = self.store.lock();
+        let mut store = self.store.lock().await;
         store.add_text(text, memory_id).await?;
         
         // Estimate memory usage (approximate)
@@ -144,7 +162,7 @@ impl ThreadSafeVectorStore {
     
     /// Search for similar vectors
     pub async fn search(&self, query: Vec<f32>, k: usize) -> VectorResult<Vec<SearchResult>> {
-        let store = self.store.lock();
+        let store = self.store.lock().await;
         let results = store.search_raw_vector(&query, k).await?;
         
         // Record cache hit/miss (simplified)
@@ -155,7 +173,7 @@ impl ThreadSafeVectorStore {
     
     /// Search for similar text
     pub async fn search_text(&self, query: &str, k: usize) -> VectorResult<Vec<SearchResult>> {
-        let mut store = self.store.lock();
+        let mut store = self.store.lock().await;
         let results = store.search_text(query, k).await?;
         
         // Record cache hit/miss (simplified)
@@ -166,7 +184,7 @@ impl ThreadSafeVectorStore {
     
     /// Remove a vector from the store
     pub async fn remove_vector(&self, memory_id: MemoryId) -> VectorResult<()> {
-        let mut store = self.store.lock();
+        let mut store = self.store.lock().await;
         store.remove_vector(memory_id).await?;
         
         // Estimate memory freed (approximate)
@@ -200,7 +218,7 @@ impl ThreadSafeVectorStore {
     
     /// Save store to disk
     pub async fn save(&self, root_key: Option<&RootKey>) -> VectorResult<()> {
-        let store = self.store.lock();
+        let store = self.store.lock().await;
         self.persistence.save_store(&store, root_key).await
     }
     
@@ -209,9 +227,14 @@ impl ThreadSafeVectorStore {
         self.memory_manager.get_stats()
     }
     
+    /// Get vector count percentage
+    pub fn get_vector_count_percentage(&self) -> f32 {
+        self.memory_manager.get_vector_count_percentage()
+    }
+    
     /// Get store statistics
-    pub fn get_store_stats(&self) -> StoreStats {
-        let store = self.store.lock();
+    pub async fn get_store_stats(&self) -> StoreStats {
+        let store = self.store.lock().await;
         StoreStats {
             vector_count: store.len(),
             dimension: store.dimension(),
@@ -221,39 +244,45 @@ impl ThreadSafeVectorStore {
     }
     
     /// Check if store is empty
-    pub fn is_empty(&self) -> bool {
-        let store = self.store.lock();
+    pub async fn is_empty(&self) -> bool {
+        let store = self.store.lock().await;
         store.is_empty()
     }
     
     /// Get the number of vectors in the store
-    pub fn len(&self) -> usize {
-        let store = self.store.lock();
+    pub async fn len(&self) -> usize {
+        let store = self.store.lock().await;
         store.len()
     }
     
     /// Check if a memory ID exists
-    pub fn contains(&self, memory_id: &MemoryId) -> bool {
-        let store = self.store.lock();
+    pub async fn contains(&self, memory_id: &MemoryId) -> bool {
+        let store = self.store.lock().await;
         store.contains(memory_id)
     }
     
     /// Get embedding dimension
-    pub fn dimension(&self) -> usize {
-        let store = self.store.lock();
+    pub async fn dimension(&self) -> usize {
+        let store = self.store.lock().await;
         store.dimension()
     }
     
     /// Check if embedder is available
-    pub fn has_embedder(&self) -> bool {
-        let store = self.store.lock();
+    pub async fn has_embedder(&self) -> bool {
+        let store = self.store.lock().await;
         store.has_embedder()
     }
     
     /// Check if rotation is enabled
-    pub fn has_rotation(&self) -> bool {
-        let store = self.store.lock();
+    pub async fn has_rotation(&self) -> bool {
+        let store = self.store.lock().await;
         store.has_rotation()
+    }
+
+    /// Attach an embedder to the store
+    pub async fn attach_embedder<P: AsRef<Path>>(&self, model_path: P) -> VectorResult<()> {
+        let mut store = self.store.lock().await;
+        store.attach_embedder(model_path).await
     }
     
     /// Update memory configuration
@@ -262,12 +291,13 @@ impl ThreadSafeVectorStore {
     }
     
     /// Update batch configuration
-    pub fn update_batch_config(&mut self, config: BatchConfig) {
+    pub async fn update_batch_config(&mut self, config: BatchConfig) {
         if let Some(batch_ops) = &mut self.batch_ops {
             batch_ops.update_config(config);
         } else {
+            let dim = self.dimension().await;
             self.batch_ops = Some(BatchOperations::new(
-                SecureVectorStore::new(self.dimension()).unwrap(),
+                SecureVectorStore::new(dim).unwrap(),
                 config,
             ));
         }
@@ -307,8 +337,9 @@ mod tests {
         let temp_dir = TempDir::new().unwrap();
         let store = ThreadSafeVectorStore::new(temp_dir.path(), 128, None, None).unwrap();
         
-        assert_eq!(store.dimension(), 128);
-        assert!(store.is_empty());
+        let dim = store.dimension().await;
+        assert_eq!(dim, 128);
+        assert!(store.is_empty().await);
     }
     
     #[tokio::test]
@@ -320,8 +351,8 @@ mod tests {
         let vector = generate_test_embedding(128);
         
         store.add_vector(memory_id, vector.clone()).await.unwrap();
-        assert_eq!(store.len(), 1);
-        assert!(store.contains(&memory_id));
+        assert_eq!(store.len().await, 1);
+        assert!(store.contains(&memory_id).await);
         
         let results = store.search(vector, 5).await.unwrap();
         assert_eq!(results.len(), 1);
@@ -340,7 +371,7 @@ mod tests {
             store.add_vector(memory_id, vector).await.unwrap();
         }
         
-        assert_eq!(store.len(), 10);
+        assert_eq!(store.len().await, 10);
     }
     
     #[tokio::test]
@@ -386,7 +417,7 @@ mod tests {
         assert!(loaded_store.is_some());
         
         let loaded_store = loaded_store.unwrap();
-        assert_eq!(loaded_store.len(), 1);
-        assert!(loaded_store.contains(&memory_id));
+        assert_eq!(loaded_store.len().await, 1);
+        assert!(loaded_store.contains(&memory_id).await);
     }
 } 

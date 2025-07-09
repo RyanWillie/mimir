@@ -1,12 +1,14 @@
 //! Mimir Database - Encrypted storage for memory entries
 
 use mimir_core::{Memory, MemoryClass, MemoryId, Result, crypto::CryptoManager};
-use rusqlite::{Connection, params, Transaction};
+use rusqlite::{Connection, params};
 use std::path::Path;
+use std::sync::Arc;
+use tokio::sync::Mutex;
 
 /// Encrypted database for storing memories
 pub struct Database {
-    conn: Connection,
+    conn: Arc<Mutex<Connection>>,
     crypto_manager: CryptoManager,
 }
 
@@ -70,7 +72,7 @@ impl Database {
         ).map_err(|e| mimir_core::MimirError::Database(anyhow::anyhow!("Failed to create user_ts index: {}", e)))?;
         
         Ok(Database {
-            conn,
+            conn: Arc::new(Mutex::new(conn)),
             crypto_manager,
         })
     }
@@ -128,7 +130,8 @@ impl Database {
         let ts = memory.created_at.timestamp();
         
         // Insert into database
-        let result = self.conn.execute(
+        let conn = self.conn.lock().await;
+        let result = conn.execute(
             "INSERT OR REPLACE INTO memory (id, user_id, class_id, text_enc, vec_id, ts)
              VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
             params![
@@ -161,7 +164,8 @@ impl Database {
             MemoryClass::Other(s) => s,
         };
         
-        let mut stmt = self.conn.prepare(
+        let conn = self.conn.lock().await;
+        let mut stmt = conn.prepare(
             "SELECT id, user_id, class_id, text_enc, vec_id, ts
              FROM memory WHERE class_id = ?1
              ORDER BY ts DESC"
@@ -196,7 +200,7 @@ impl Database {
                 .map_err(|e| mimir_core::MimirError::Database(anyhow::anyhow!("Invalid UTF-8: {}", e)))?;
             
             // Parse class
-            let memory_class = match class_id.as_str() {
+            let memory_class = match class_id.as_ref() {
                 "personal" => MemoryClass::Personal,
                 "work" => MemoryClass::Work,
                 "health" => MemoryClass::Health,
@@ -233,7 +237,8 @@ impl Database {
 
     /// Get the last N memories for a user
     pub async fn get_last_memories(&mut self, user_id: &str, limit: usize) -> Result<Vec<Memory>> {
-        let mut stmt = self.conn.prepare(
+        let conn = self.conn.lock().await;
+        let mut stmt = conn.prepare(
             "SELECT id, user_id, class_id, text_enc, vec_id, ts
              FROM memory WHERE user_id = ?1
              ORDER BY ts DESC
@@ -269,7 +274,7 @@ impl Database {
                 .map_err(|e| mimir_core::MimirError::Database(anyhow::anyhow!("Invalid UTF-8: {}", e)))?;
             
             // Parse class
-            let memory_class = match class_id.as_str() {
+            let memory_class = match class_id.as_ref() {
                 "personal" => MemoryClass::Personal,
                 "work" => MemoryClass::Work,
                 "health" => MemoryClass::Health,
@@ -306,7 +311,8 @@ impl Database {
 
     /// Delete a memory by ID
     pub async fn delete_memory(&self, id: MemoryId) -> Result<()> {
-        self.conn.execute(
+        let conn = self.conn.lock().await;
+        conn.execute(
             "DELETE FROM memory WHERE id = ?1",
             params![id.to_string()],
         ).map_err(|e| mimir_core::MimirError::Database(anyhow::anyhow!("Failed to delete memory: {}", e)))?;
@@ -316,7 +322,8 @@ impl Database {
 
     /// Get memory by ID
     pub async fn get_memory(&mut self, id: MemoryId) -> Result<Option<Memory>> {
-        let mut stmt = self.conn.prepare(
+        let conn = self.conn.lock().await;
+        let mut stmt = conn.prepare(
             "SELECT id, user_id, class_id, text_enc, vec_id, ts
              FROM memory WHERE id = ?1"
         ).map_err(|e| mimir_core::MimirError::Database(anyhow::anyhow!("Failed to prepare query: {}", e)))?;
@@ -348,7 +355,7 @@ impl Database {
                 .map_err(|e| mimir_core::MimirError::Database(anyhow::anyhow!("Invalid UTF-8: {}", e)))?;
             
             // Parse class
-            let memory_class = match class_id.as_str() {
+            let memory_class = match class_id.as_ref() {
                 "personal" => MemoryClass::Personal,
                 "work" => MemoryClass::Work,
                 "health" => MemoryClass::Health,
@@ -383,10 +390,22 @@ impl Database {
         }
     }
 
-    /// Begin a transaction
-    pub fn transaction(&mut self) -> Result<Transaction<'_>> {
-        self.conn.transaction()
-            .map_err(|e| mimir_core::MimirError::Database(anyhow::anyhow!("Failed to begin transaction: {}", e)))
+    // Note: Transaction support removed due to async/thread-safety constraints
+    // All database operations are now atomic and thread-safe
+
+    /// Update an existing memory in the database
+    pub async fn update_memory(&mut self, memory: &Memory) -> Result<()> {
+        // Use store_memory which handles INSERT OR REPLACE
+        self.store_memory(memory).await
+    }
+
+    /// Clear all memories from the database
+    pub async fn clear_all_memories(&mut self) -> Result<usize> {
+        let conn = self.conn.lock().await;
+        let result = conn.execute("DELETE FROM memory", [])
+            .map_err(|e| mimir_core::MimirError::Database(anyhow::anyhow!("Failed to clear memories: {}", e)))?;
+        
+        Ok(result as usize)
     }
 }
 
@@ -765,17 +784,5 @@ mod tests {
             assert!(retrieved.is_some());
             assert_eq!(retrieved.unwrap().content, content);
         }
-    }
-
-    #[tokio::test]
-    async fn test_transaction_support() {
-        let (mut db, _temp_dir) = create_test_database();
-
-        // Test transaction support
-        let transaction = db.transaction();
-        assert!(transaction.is_ok());
-
-        // Note: In a real implementation, you would use the transaction
-        // to perform multiple operations atomically
     }
 }

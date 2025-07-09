@@ -589,7 +589,8 @@ mod tests {
         let temp_dir = TempDir::new().unwrap();
         let keyset_path = temp_dir.path().join("keyset.json");
         
-        let mut crypto_manager = CryptoManager::new(keyset_path).unwrap();
+        let password = "test-password-for-ci";
+        let mut crypto_manager = CryptoManager::with_password(&keyset_path, password).unwrap();
         
         let plaintext = b"Hello, secure world!";
         let ciphertext = crypto_manager.encrypt("personal", plaintext).unwrap();
@@ -603,7 +604,8 @@ mod tests {
         let temp_dir = TempDir::new().unwrap();
         let keyset_path = temp_dir.path().join("keyset.json");
         
-        let mut crypto_manager = CryptoManager::new(keyset_path).unwrap();
+        let password = "test-password-for-ci";
+        let mut crypto_manager = CryptoManager::with_password(&keyset_path, password).unwrap();
         
         // Encrypt some data
         let plaintext = b"Test data";
@@ -627,7 +629,8 @@ mod tests {
         let temp_dir = TempDir::new().unwrap();
         let keyset_path = temp_dir.path().join("keyset.json");
         
-        let mut crypto_manager = CryptoManager::new(keyset_path).unwrap();
+        let password = "test-password-for-ci";
+        let mut crypto_manager = CryptoManager::with_password(&keyset_path, password).unwrap();
         
         // Create some encrypted data
         let plaintext = b"Sensitive data";

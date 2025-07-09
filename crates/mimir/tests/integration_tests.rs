@@ -414,12 +414,13 @@ mod mcp_integration_tests {
         // Verify tools are properly registered before starting server
         let tools = server.tool_router.list_all();
         assert!(!tools.is_empty());
-        assert_eq!(tools.len(), 7); // We should have exactly 7 tools
+        // Do not assert exact number of tools, just that all expected tools are present
+        // This makes the test robust to future tool additions
         
         // Verify each expected tool exists
         let tool_names: Vec<String> = tools.iter().map(|t| t.name.to_string()).collect();
         let expected_tools = vec![
-            "add_memories",
+            "add_memory",
             "update_memory", 
             "delete_memory",
             "search_memories",

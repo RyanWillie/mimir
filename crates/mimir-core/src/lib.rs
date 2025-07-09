@@ -11,6 +11,6 @@ pub mod types;
 #[cfg(any(test, feature = "test-utils"))]
 pub mod test_utils;
 
+pub use config::{get_default_app_dir, get_default_config_path, get_default_keyset_path, Config};
 pub use error::{MimirError, Result};
 pub use types::*;
-pub use config::{Config, get_default_app_dir, get_default_config_path, get_default_keyset_path};

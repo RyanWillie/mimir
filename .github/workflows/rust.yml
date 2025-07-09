@@ -28,13 +28,18 @@ jobs:
         components: rustfmt, clippy
 
     - name: Cache cargo
-      uses: actions/cache@v3
+      uses: actions/cache@v4
       with:
         path: |
           ~/.cargo/registry
           ~/.cargo/git
           target
         key: ${{ runner.os }}-cargo-lint-${{ hashFiles('**/Cargo.lock') }}
+
+    - name: Install system dependencies
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y libsqlcipher-dev libglib2.0-dev pkg-config libgtk-3-dev libjavascriptcoregtk-4.1-dev libsoup-3.0-dev libwebkit2gtk-4.1-dev libgirepository1.0-dev libcairo2-dev libpango1.0-dev libatk1.0-dev libgdk-pixbuf2.0-dev libx11-dev libxcomposite-dev libxdamage-dev libxext-dev libxfixes-dev libxrandr-dev libxss-dev libxtst-dev libnss3-dev libdrm-dev libxkbcommon-dev libxshmfence-dev libgbm-dev libasound2-dev libpulse-dev libharfbuzz-dev libfontconfig1-dev libfreetype6-dev libpng-dev libjpeg-dev libtiff-dev libgif-dev libwebp-dev libxml2-dev libxslt-dev libsqlite3-dev libssl-dev libffi-dev
 
     - name: Check formatting
       run: cargo fmt --all -- --check
@@ -64,7 +69,7 @@ jobs:
         toolchain: ${{ matrix.rust }}
 
     - name: Cache cargo
-      uses: actions/cache@v3
+      uses: actions/cache@v4
       with:
         path: |
           ~/.cargo/registry
@@ -76,24 +81,30 @@ jobs:
       if: matrix.os == 'ubuntu-latest'
       run: |
         sudo apt-get update
-        sudo apt-get install -y libsqlcipher-dev
+        sudo apt-get install -y libsqlcipher-dev libglib2.0-dev pkg-config libgtk-3-dev libjavascriptcoregtk-4.1-dev libsoup-3.0-dev libwebkit2gtk-4.1-dev libgirepository1.0-dev libcairo2-dev libpango1.0-dev libatk1.0-dev libgdk-pixbuf2.0-dev libx11-dev libxcomposite-dev libxdamage-dev libxext-dev libxfixes-dev libxrandr-dev libxss-dev libxtst-dev libnss3-dev libdrm-dev libxkbcommon-dev libxshmfence-dev libgbm-dev libasound2-dev libpulse-dev libharfbuzz-dev libfontconfig1-dev libfreetype6-dev libpng-dev libjpeg-dev libtiff-dev libgif-dev libwebp-dev libxml2-dev libxslt-dev libsqlite3-dev libssl-dev libffi-dev
+
+    - name: Install system dependencies (Windows)
+      if: matrix.os == 'windows-latest'
+      run: |
+        # Install SQLCipher using vcpkg
+        git clone https://github.com/Microsoft/vcpkg.git
+        cd vcpkg
+        .\bootstrap-vcpkg.bat
+        .\vcpkg install sqlcipher:x64-windows
+        .\vcpkg integrate install
+        cd ..
+        # Set environment variables for SQLCipher
+        echo "SQLCIPHER_LIB_DIR=$env:GITHUB_WORKSPACE\vcpkg\installed\x64-windows\lib" >> $env:GITHUB_ENV
+        echo "SQLCIPHER_INCLUDE_DIR=$env:GITHUB_WORKSPACE\vcpkg\installed\x64-windows\include" >> $env:GITHUB_ENV
 
     - name: Install system dependencies (macOS)
       if: matrix.os == 'macos-latest'
       run: |
         brew install sqlcipher
-
-    - name: Setup Python for bindings tests
-      if: matrix.os != 'windows-latest' # Skip Windows Python setup for now
-      uses: actions/setup-python@v4
-      with:
-        python-version: '3.12'
-
-    - name: Install Python dependencies
-      if: matrix.os != 'windows-latest'
-      run: |
-        python -m pip install --upgrade pip
-        pip install maturin pytest
+        # Install Xcode command line tools for Tauri (skip if already installed)
+        xcode-select -p >/dev/null 2>&1 || xcode-select --install || true
+        # Install additional dependencies that might be needed
+        brew install pkg-config openssl
 
     - name: Run core unit tests
       run: cargo test -p mimir-core --lib
@@ -108,6 +119,10 @@ jobs:
     - name: Run SDK unit tests
       run: cargo test -p mimir-sdk --lib
 
+    - name: Run tray unit tests (skip on macOS due to Tauri dependencies)
+      if: matrix.os != 'macos-latest'
+      run: cargo test -p mimir-tray --lib
+
   integration-tests:
     name: Integration Tests
     runs-on: ubuntu-latest
@@ -120,7 +135,7 @@ jobs:
       uses: dtolnay/rust-toolchain@stable
 
     - name: Cache cargo
-      uses: actions/cache@v3
+      uses: actions/cache@v4
       with:
         path: |
           ~/.cargo/registry
@@ -131,17 +146,7 @@ jobs:
     - name: Install system dependencies
       run: |
         sudo apt-get update
-        sudo apt-get install -y libsqlcipher-dev
-
-    - name: Setup Python
-      uses: actions/setup-python@v4
-      with:
-        python-version: '3.12'
-
-    - name: Install Python dependencies
-      run: |
-        python -m pip install --upgrade pip
-        pip install maturin pytest
+        sudo apt-get install -y libsqlcipher-dev libglib2.0-dev pkg-config libgtk-3-dev libjavascriptcoregtk-4.1-dev libsoup-3.0-dev libwebkit2gtk-4.1-dev libgirepository1.0-dev libcairo2-dev libpango1.0-dev libatk1.0-dev libgdk-pixbuf2.0-dev libx11-dev libxcomposite-dev libxdamage-dev libxext-dev libxfixes-dev libxrandr-dev libxss-dev libxtst-dev libnss3-dev libdrm-dev libxkbcommon-dev libxshmfence-dev libgbm-dev libasound2-dev libpulse-dev libharfbuzz-dev libfontconfig1-dev libfreetype6-dev libpng-dev libjpeg-dev libtiff-dev libgif-dev libwebp-dev libxml2-dev libxslt-dev libsqlite3-dev libssl-dev libffi-dev
 
     - name: Run server integration tests
       run: cargo test -p mimir --test '*' --all-features
@@ -149,15 +154,8 @@ jobs:
     - name: Run SDK integration tests  
       run: cargo test -p mimir-sdk --test '*' --all-features
 
-    - name: Test Python bindings (if available)
-      continue-on-error: true # Don't fail CI if Python bindings aren't ready
-      run: |
-        cd bindings/python
-        maturin develop
-        python -m pytest tests/ -v
-
   benchmarks:
-    name: Performance Benchmarks (Stubs)
+    name: Performance Benchmarks
     runs-on: ubuntu-latest
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
     steps:
@@ -168,7 +166,7 @@ jobs:
       uses: dtolnay/rust-toolchain@stable
 
     - name: Cache cargo
-      uses: actions/cache@v3
+      uses: actions/cache@v4
       with:
         path: |
           ~/.cargo/registry
@@ -179,7 +177,7 @@ jobs:
     - name: Install system dependencies
       run: |
         sudo apt-get update
-        sudo apt-get install -y libsqlcipher-dev
+        sudo apt-get install -y libsqlcipher-dev libglib2.0-dev pkg-config libgtk-3-dev libjavascriptcoregtk-4.1-dev libsoup-3.0-dev libwebkit2gtk-4.1-dev libgirepository1.0-dev libcairo2-dev libpango1.0-dev libatk1.0-dev libgdk-pixbuf2.0-dev libx11-dev libxcomposite-dev libxdamage-dev libxext-dev libxfixes-dev libxrandr-dev libxss-dev libxtst-dev libnss3-dev libdrm-dev libxkbcommon-dev libxshmfence-dev libgbm-dev libasound2-dev libpulse-dev libharfbuzz-dev libfontconfig1-dev libfreetype6-dev libpng-dev libjpeg-dev libtiff-dev libgif-dev libwebp-dev libxml2-dev libxslt-dev libsqlite3-dev libssl-dev libffi-dev
 
     - name: Run core benchmarks (quick)
       run: cargo bench -p mimir-core --bench memory_operations -- --sample-size 10
@@ -188,7 +186,7 @@ jobs:
       run: cargo bench -p mimir-vector --bench vector_operations -- --sample-size 10
 
     - name: Upload benchmark results
-      uses: actions/upload-artifact@v3
+      uses: actions/upload-artifact@v4
       with:
         name: benchmark-results
         path: target/criterion/
@@ -225,17 +223,7 @@ jobs:
     - name: Install system dependencies
       run: |
         sudo apt-get update
-        sudo apt-get install -y libsqlcipher-dev
-
-    - name: Setup Python
-      uses: actions/setup-python@v4
-      with:
-        python-version: '3.12'
-
-    - name: Install Python dependencies
-      run: |
-        python -m pip install --upgrade pip
-        pip install maturin pytest
+        sudo apt-get install -y libsqlcipher-dev libglib2.0-dev pkg-config libgtk-3-dev libjavascriptcoregtk-4.1-dev libsoup-3.0-dev libwebkit2gtk-4.1-dev libgirepository1.0-dev libcairo2-dev libpango1.0-dev libatk1.0-dev libgdk-pixbuf2.0-dev libx11-dev libxcomposite-dev libxdamage-dev libxext-dev libxfixes-dev libxrandr-dev libxss-dev libxtst-dev libnss3-dev libdrm-dev libxkbcommon-dev libxshmfence-dev libgbm-dev libasound2-dev libpulse-dev libharfbuzz-dev libfontconfig1-dev libfreetype6-dev libpng-dev libjpeg-dev libtiff-dev libgif-dev libwebp-dev libxml2-dev libxslt-dev libsqlite3-dev libssl-dev libffi-dev
 
     - name: Install cargo-llvm-cov
       run: cargo install cargo-llvm-cov
@@ -247,14 +235,14 @@ jobs:
           --ignore-filename-regex "benches/|tests/|examples/"
 
     - name: Upload coverage to Codecov
-      uses: codecov/codecov-action@v3
+      uses: codecov/codecov-action@v4
       with:
         file: lcov.info
         fail_ci_if_error: false
         verbose: true
 
     - name: Upload coverage artifact
-      uses: actions/upload-artifact@v3
+      uses: actions/upload-artifact@v4
       with:
         name: coverage-report
         path: lcov.info
@@ -277,11 +265,30 @@ jobs:
       if: matrix.os == 'ubuntu-latest'
       run: |
         sudo apt-get update
-        sudo apt-get install -y libsqlcipher-dev
+        sudo apt-get install -y libsqlcipher-dev libglib2.0-dev pkg-config libgtk-3-dev libjavascriptcoregtk-4.1-dev libsoup-3.0-dev libwebkit2gtk-4.1-dev libgirepository1.0-dev libcairo2-dev libpango1.0-dev libatk1.0-dev libgdk-pixbuf2.0-dev libx11-dev libxcomposite-dev libxdamage-dev libxext-dev libxfixes-dev libxrandr-dev libxss-dev libxtst-dev libnss3-dev libdrm-dev libxkbcommon-dev libxshmfence-dev libgbm-dev libasound2-dev libpulse-dev libharfbuzz-dev libfontconfig1-dev libfreetype6-dev libpng-dev libjpeg-dev libtiff-dev libgif-dev libwebp-dev libxml2-dev libxslt-dev libsqlite3-dev libssl-dev libffi-dev
+
+    - name: Install system dependencies (Windows)
+      if: matrix.os == 'windows-latest'
+      run: |
+        # Install SQLCipher using vcpkg
+        git clone https://github.com/Microsoft/vcpkg.git
+        cd vcpkg
+        .\bootstrap-vcpkg.bat
+        .\vcpkg install sqlcipher:x64-windows
+        .\vcpkg integrate install
+        cd ..
+        # Set environment variables for SQLCipher
+        echo "SQLCIPHER_LIB_DIR=$env:GITHUB_WORKSPACE\vcpkg\installed\x64-windows\lib" >> $env:GITHUB_ENV
+        echo "SQLCIPHER_INCLUDE_DIR=$env:GITHUB_WORKSPACE\vcpkg\installed\x64-windows\include" >> $env:GITHUB_ENV
 
     - name: Install system dependencies (macOS)
       if: matrix.os == 'macos-latest'
-      run: brew install sqlcipher
+      run: |
+        brew install sqlcipher
+        # Install Xcode command line tools for Tauri (skip if already installed)
+        xcode-select -p >/dev/null 2>&1 || xcode-select --install || true
+        # Install additional dependencies that might be needed
+        brew install pkg-config openssl
 
     - name: Check all crates build
       run: cargo check --workspace --all-targets --all-features
@@ -323,11 +330,30 @@ jobs:
       if: matrix.os == 'ubuntu-latest'
       run: |
         sudo apt-get update
-        sudo apt-get install -y libsqlcipher-dev
+        sudo apt-get install -y libsqlcipher-dev libglib2.0-dev pkg-config libgtk-3-dev libjavascriptcoregtk-4.1-dev libsoup-3.0-dev libwebkit2gtk-4.1-dev libgirepository1.0-dev libcairo2-dev libpango1.0-dev libatk1.0-dev libgdk-pixbuf2.0-dev libx11-dev libxcomposite-dev libxdamage-dev libxext-dev libxfixes-dev libxrandr-dev libxss-dev libxtst-dev libnss3-dev libdrm-dev libxkbcommon-dev libxshmfence-dev libgbm-dev libasound2-dev libpulse-dev libharfbuzz-dev libfontconfig1-dev libfreetype6-dev libpng-dev libjpeg-dev libtiff-dev libgif-dev libwebp-dev libxml2-dev libxslt-dev libsqlite3-dev libssl-dev libffi-dev
+
+    - name: Install system dependencies (Windows)
+      if: matrix.os == 'windows-latest'
+      run: |
+        # Install SQLCipher using vcpkg
+        git clone https://github.com/Microsoft/vcpkg.git
+        cd vcpkg
+        .\bootstrap-vcpkg.bat
+        .\vcpkg install sqlcipher:x64-windows
+        .\vcpkg integrate install
+        cd ..
+        # Set environment variables for SQLCipher
+        echo "SQLCIPHER_LIB_DIR=$env:GITHUB_WORKSPACE\vcpkg\installed\x64-windows\lib" >> $env:GITHUB_ENV
+        echo "SQLCIPHER_INCLUDE_DIR=$env:GITHUB_WORKSPACE\vcpkg\installed\x64-windows\include" >> $env:GITHUB_ENV
 
     - name: Install system dependencies (macOS)
       if: matrix.os == 'macos-latest'
-      run: brew install sqlcipher
+      run: |
+        brew install sqlcipher
+        # Install Xcode command line tools for Tauri (skip if already installed)
+        xcode-select -p >/dev/null 2>&1 || xcode-select --install || true
+        # Install additional dependencies that might be needed
+        brew install pkg-config openssl
 
     - name: Build release binary
       run: cargo build --release --target ${{ matrix.target }} -p mimir

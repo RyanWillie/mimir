@@ -46,4 +46,4 @@ impl From<serde_json::Error> for VectorError {
     fn from(err: serde_json::Error) -> Self {
         VectorError::Serialization(err.to_string())
     }
-} 
+}

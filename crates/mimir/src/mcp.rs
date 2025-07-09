@@ -1,12 +1,11 @@
-use rmcp::{
-    model::*, tool, tool_router, tool_handler, 
-    handler::server::router::tool::ToolRouter, 
-    handler::server::tool::Parameters, schemars
-};
-use std::sync::Arc;
-use std::future::Future;
-use mimir_core::{Memory as CoreMemory, MemoryClass};
 use crate::storage::IntegratedStorage;
+use mimir_core::{Memory as CoreMemory, MemoryClass};
+use rmcp::{
+    handler::server::router::tool::ToolRouter, handler::server::tool::Parameters, model::*,
+    schemars, tool, tool_handler, tool_router,
+};
+use std::future::Future;
+use std::sync::Arc;
 use uuid::Uuid;
 
 /// Parameters for adding a single memory
@@ -15,8 +14,6 @@ struct AddMemoryParams {
     user_id: String,
     text: String,
 }
-
-
 
 /// Parameters for deleting a memory
 #[derive(Debug, schemars::JsonSchema, serde::Deserialize, serde::Serialize)]
@@ -36,8 +33,6 @@ struct UpdateMemoryParams {
     id: String,
     text: String,
 }
-
-
 
 /// Mimir MCP Server for memory management
 #[derive(Clone)]
@@ -89,7 +84,9 @@ impl MimirServer {
         ];
 
         for memory in sample_memories {
-            self.storage.add_memory(memory).await
+            self.storage
+                .add_memory(memory)
+                .await
                 .map_err(|e| Box::new(e) as Box<dyn std::error::Error>)?;
         }
 
@@ -104,7 +101,7 @@ impl MimirServer {
     ) -> std::result::Result<CallToolResult, ErrorData> {
         // Generate a unique ID for the memory
         let memory_id = Uuid::new_v4();
-        
+
         let core_memory = CoreMemory {
             id: memory_id,
             content: text,
@@ -117,23 +114,30 @@ impl MimirServer {
             created_at: chrono::Utc::now(),
             updated_at: chrono::Utc::now(),
         };
-        
+
         // Store memory using integrated storage
         match self.storage.add_memory(core_memory).await {
             Ok(result) => {
                 let success_text = if result.database_stored && result.vector_stored {
-                    format!("✅ Successfully added memory with ID: {} (database and vector store)", memory_id)
+                    format!(
+                        "✅ Successfully added memory with ID: {} (database and vector store)",
+                        memory_id
+                    )
                 } else if result.database_stored {
-                    format!("✅ Successfully added memory with ID: {} (database only)", memory_id)
+                    format!(
+                        "✅ Successfully added memory with ID: {} (database only)",
+                        memory_id
+                    )
                 } else {
                     format!("❌ Failed to add memory with ID: {}", memory_id)
                 };
-                
+
                 Ok(CallToolResult::success(vec![Content::text(success_text)]))
             }
-            Err(e) => {
-                Err(ErrorData::invalid_request(format!("Failed to add memory: {}", e), None))
-            }
+            Err(e) => Err(ErrorData::invalid_request(
+                format!("Failed to add memory: {}", e),
+                None,
+            )),
         }
     }
 
@@ -145,7 +149,7 @@ impl MimirServer {
     ) -> std::result::Result<CallToolResult, ErrorData> {
         let memory_id = Uuid::parse_str(&id)
             .map_err(|e| ErrorData::invalid_request(format!("Invalid UUID: {}", e), None))?;
-        
+
         match self.storage.delete_memory(memory_id).await {
             Ok(deleted) => {
                 if deleted {
@@ -160,9 +164,10 @@ impl MimirServer {
                     ))]))
                 }
             }
-            Err(e) => {
-                Err(ErrorData::invalid_request(format!("Failed to delete memory: {}", e), None))
-            }
+            Err(e) => Err(ErrorData::invalid_request(
+                format!("Failed to delete memory: {}", e),
+                None,
+            )),
         }
     }
 
@@ -193,23 +198,29 @@ impl MimirServer {
                     Ok(CallToolResult::success(vec![Content::text(result_text)]))
                 }
             }
-            Err(e) => {
-                Err(ErrorData::invalid_request(format!("Failed to search memories: {}", e), None))
-            }
+            Err(e) => Err(ErrorData::invalid_request(
+                format!("Failed to search memories: {}", e),
+                None,
+            )),
         }
     }
 
     /// List all memories in the vault
     #[tool(description = "List all memories in the vault")]
     async fn list_memories(&self) -> std::result::Result<CallToolResult, ErrorData> {
-        match self.storage.get_memories_by_class(&MemoryClass::Personal).await {
+        match self
+            .storage
+            .get_memories_by_class(&MemoryClass::Personal)
+            .await
+        {
             Ok(memories) => {
                 if memories.is_empty() {
                     Ok(CallToolResult::success(vec![Content::text(
-                        "📝 No memories found in vault".to_string()
+                        "📝 No memories found in vault".to_string(),
                     )]))
                 } else {
-                    let mut result_text = format!("📝 Found {} memories in vault:\n", memories.len());
+                    let mut result_text =
+                        format!("📝 Found {} memories in vault:\n", memories.len());
                     for (i, memory) in memories.iter().enumerate() {
                         result_text.push_str(&format!(
                             "{}. ID: {} | Class: {:?} | Content: '{}'\n",
@@ -222,9 +233,10 @@ impl MimirServer {
                     Ok(CallToolResult::success(vec![Content::text(result_text)]))
                 }
             }
-            Err(e) => {
-                Err(ErrorData::invalid_request(format!("Failed to list memories: {}", e), None))
-            }
+            Err(e) => Err(ErrorData::invalid_request(
+                format!("Failed to list memories: {}", e),
+                None,
+            )),
         }
     }
 
@@ -240,15 +252,13 @@ impl MimirServer {
                     stats.memory_usage_bytes,
                     stats.vector_count_percentage
                 );
-                
+
                 Ok(CallToolResult::success(vec![Content::text(stats_text)]))
             }
-            Err(e) => {
-                Ok(CallToolResult::success(vec![Content::text(format!(
-                    "❌ Failed to get vault stats: {}",
-                    e
-                ))]))
-            }
+            Err(e) => Ok(CallToolResult::success(vec![Content::text(format!(
+                "❌ Failed to get vault stats: {}",
+                e
+            ))])),
         }
     }
 
@@ -260,45 +270,52 @@ impl MimirServer {
     ) -> std::result::Result<CallToolResult, ErrorData> {
         let memory_id = Uuid::parse_str(&id)
             .map_err(|e| ErrorData::invalid_request(format!("Invalid UUID: {}", e), None))?;
-        
+
         // Get existing memory first
         let existing_memory = match self.storage.get_memory(memory_id).await {
             Ok(Some(memory)) => memory,
             Ok(None) => {
                 return Err(ErrorData::invalid_request(
-                    format!("Memory with ID {} not found", id), 
-                    None
+                    format!("Memory with ID {} not found", id),
+                    None,
                 ));
             }
             Err(e) => {
                 return Err(ErrorData::invalid_request(
-                    format!("Failed to retrieve memory: {}", e), 
-                    None
+                    format!("Failed to retrieve memory: {}", e),
+                    None,
                 ));
             }
         };
-        
+
         // Create updated memory with new content
         let mut updated_memory = existing_memory;
         updated_memory.content = text;
         updated_memory.updated_at = chrono::Utc::now();
-        
+
         // Update in storage
         match self.storage.update_memory(updated_memory).await {
             Ok(result) => {
                 let success_text = if result.database_stored && result.vector_stored {
-                    format!("✅ Successfully updated memory with ID: {} (database and vector store)", id)
+                    format!(
+                        "✅ Successfully updated memory with ID: {} (database and vector store)",
+                        id
+                    )
                 } else if result.database_stored {
-                    format!("✅ Successfully updated memory with ID: {} (database only)", id)
+                    format!(
+                        "✅ Successfully updated memory with ID: {} (database only)",
+                        id
+                    )
                 } else {
                     format!("❌ Failed to update memory with ID: {}", id)
                 };
-                
+
                 Ok(CallToolResult::success(vec![Content::text(success_text)]))
             }
-            Err(e) => {
-                Err(ErrorData::invalid_request(format!("Failed to update memory: {}", e), None))
-            }
+            Err(e) => Err(ErrorData::invalid_request(
+                format!("Failed to update memory: {}", e),
+                None,
+            )),
         }
     }
 
@@ -306,21 +323,22 @@ impl MimirServer {
     #[tool(description = "Clear all memories from the vault")]
     async fn clear_vault(&self) -> std::result::Result<CallToolResult, ErrorData> {
         match self.storage.clear_vault().await {
-            Ok(count) => {
-                Ok(CallToolResult::success(vec![Content::text(format!(
-                    "🗑️ Successfully cleared {} memories from vault",
-                    count
-                ))]))
-            }
-            Err(e) => {
-                Err(ErrorData::invalid_request(format!("Failed to clear vault: {}", e), None))
-            }
+            Ok(count) => Ok(CallToolResult::success(vec![Content::text(format!(
+                "🗑️ Successfully cleared {} memories from vault",
+                count
+            ))])),
+            Err(e) => Err(ErrorData::invalid_request(
+                format!("Failed to clear vault: {}", e),
+                None,
+            )),
         }
     }
 
     /// Save the vector store to disk
     pub async fn save_vector_store(&self) -> std::result::Result<(), Box<dyn std::error::Error>> {
-        self.storage.save_vector_store().await
+        self.storage
+            .save_vector_store()
+            .await
             .map_err(|e| Box::new(e) as Box<dyn std::error::Error>)
     }
 
@@ -328,14 +346,13 @@ impl MimirServer {
     #[tool(description = "Manually save the vector store to disk")]
     async fn save_vault(&self) -> std::result::Result<CallToolResult, ErrorData> {
         match self.storage.save_vector_store().await {
-            Ok(_) => {
-                Ok(CallToolResult::success(vec![Content::text(
-                    "✅ Vector store saved successfully to disk".to_string()
-                )]))
-            }
-            Err(e) => {
-                Err(ErrorData::invalid_request(format!("Failed to save vector store: {}", e), None))
-            }
+            Ok(_) => Ok(CallToolResult::success(vec![Content::text(
+                "✅ Vector store saved successfully to disk".to_string(),
+            )])),
+            Err(e) => Err(ErrorData::invalid_request(
+                format!("Failed to save vector store: {}", e),
+                None,
+            )),
         }
     }
 
@@ -345,12 +362,15 @@ impl MimirServer {
         let stats = match self.storage.get_stats().await {
             Ok(stats) => stats,
             Err(e) => {
-                return Err(ErrorData::invalid_request(format!("Failed to get stats: {}", e), None));
+                return Err(ErrorData::invalid_request(
+                    format!("Failed to get stats: {}", e),
+                    None,
+                ));
             }
         };
-        
+
         let has_embedder = self.storage.has_vector_embedder().await;
-        
+
         let status_text = format!(
             "📊 Vector Store Status:\n• Vector count: {}\n• Database memories: {}\n• Has embedder: {}\n• Memory usage: {} bytes",
             stats.vector_memories,
@@ -358,7 +378,7 @@ impl MimirServer {
             has_embedder,
             stats.memory_usage_bytes
         );
-        
+
         Ok(CallToolResult::success(vec![Content::text(status_text)]))
     }
 }
@@ -375,44 +395,46 @@ impl rmcp::ServerHandler for MimirServer {
     }
 }
 
-
-
 #[cfg(test)]
 mod tests {
     use super::*;
-    use rmcp::ServerHandler;
     use crate::storage::IntegratedStorage;
     use mimir_core::crypto::CryptoManager;
     use mimir_db::Database;
     use mimir_vector::ThreadSafeVectorStore;
+    use rmcp::ServerHandler;
     use tempfile::TempDir;
 
     async fn create_test_server(use_embedder: bool) -> (MimirServer, TempDir) {
         let temp_dir = TempDir::new().unwrap();
         let db_path = temp_dir.path().join("test.db");
         let keyset_path = temp_dir.path().join("keyset.json");
-        
+
         // Create crypto manager for database
         let db_crypto_manager = CryptoManager::with_password(&keyset_path, "test-password")
             .expect("Failed to create test crypto manager");
-        
+
         // Create crypto manager for integrated storage
         let storage_crypto_manager = CryptoManager::with_password(&keyset_path, "test-password")
             .expect("Failed to create test crypto manager");
-        
+
         // Create database
         let database = Database::with_crypto_manager(&db_path, db_crypto_manager)
             .expect("Failed to create test database");
-        
+
         // Create vector store
         let vector_store = if use_embedder {
-            let model_path = std::path::Path::new("crates/mimir/assets/bge-small-en-int8/model-int8.onnx");
+            let model_path =
+                std::path::Path::new("crates/mimir/assets/bge-small-en-int8/model-int8.onnx");
             if model_path.exists() {
                 ThreadSafeVectorStore::with_embedder(temp_dir.path(), model_path, None, None)
                     .await
                     .expect("Failed to create test vector store with embedder")
             } else {
-                eprintln!("[SKIP] Model file not found: {:?}, running without embedder", model_path);
+                eprintln!(
+                    "[SKIP] Model file not found: {:?}, running without embedder",
+                    model_path
+                );
                 ThreadSafeVectorStore::new(temp_dir.path(), 128, None, None)
                     .expect("Failed to create test vector store")
             }
@@ -420,18 +442,18 @@ mod tests {
             ThreadSafeVectorStore::new(temp_dir.path(), 128, None, None)
                 .expect("Failed to create test vector store")
         };
-        
+
         let storage = IntegratedStorage::new(database, vector_store, storage_crypto_manager)
             .await
             .expect("Failed to create integrated storage");
-        
+
         (MimirServer::new(storage), temp_dir)
     }
 
     #[tokio::test]
     async fn test_mimir_server_creation() {
         let (server, _temp_dir) = create_test_server(false).await;
-        
+
         // Test that the server starts with empty storage
         let stats = server.get_vault_stats().await.unwrap();
         assert!(format!("{:?}", stats).contains("0"));
@@ -440,20 +462,20 @@ mod tests {
     #[tokio::test]
     async fn test_memory_operations() {
         let (server, _temp_dir) = create_test_server(false).await;
-        
+
         // Test adding a memory
         let add_params = AddMemoryParams {
             user_id: "test-user".to_string(),
             text: "Test memory content".to_string(),
         };
-        
+
         let result = server.add_memory(Parameters(add_params)).await;
         assert!(result.is_ok());
-        
+
         // Test listing memories
         let list_result = server.list_memories().await;
         assert!(list_result.is_ok());
-        
+
         // Note: We can't test deletion with a specific ID since IDs are now auto-generated
         // The deletion test would need to be updated to work with the returned ID
     }
@@ -466,18 +488,18 @@ mod tests {
             eprintln!("[SKIP] test_search_functionality: embedder/model not available");
             return;
         }
-        
+
         // Add some test data
         server.add_sample_data().await.unwrap();
-        
+
         // Search for content
         let search_params = SearchMemoriesParams {
             query: "Mimir".to_string(),
         };
-        
+
         let search_result = server.search_memories(Parameters(search_params)).await;
         assert!(search_result.is_ok());
-        
+
         // Test vault stats
         let stats_result = server.get_vault_stats().await;
         assert!(stats_result.is_ok());
@@ -486,42 +508,44 @@ mod tests {
     #[tokio::test]
     async fn test_mcp_server_tool_router() {
         let (server, _temp_dir) = create_test_server(false).await;
-        
+
         // Test that the tool router is properly initialized
         assert!(server.tool_router.list_all().len() > 0);
-        
+
         // Verify all expected tools are present
         let tools = server.tool_router.list_all();
-        let tool_names: Vec<String> = tools
-            .iter()
-            .map(|t| t.name.to_string())
-            .collect();
-        
+        let tool_names: Vec<String> = tools.iter().map(|t| t.name.to_string()).collect();
+
         assert!(tool_names.contains(&"add_memory".to_string()));
         assert!(tool_names.contains(&"delete_memory".to_string()));
         assert!(tool_names.contains(&"search_memories".to_string()));
         assert!(tool_names.contains(&"list_memories".to_string()));
         assert!(tool_names.contains(&"get_vault_stats".to_string()));
-        
+
         // Test that tools have descriptions
-        let add_tool = tools
-            .iter()
-            .find(|t| t.name == "add_memory")
-            .unwrap();
-        
+        let add_tool = tools.iter().find(|t| t.name == "add_memory").unwrap();
+
         assert!(add_tool.description.is_some());
-        assert!(add_tool.description.as_ref().unwrap().contains("Add a new memory"));
+        assert!(add_tool
+            .description
+            .as_ref()
+            .unwrap()
+            .contains("Add a new memory"));
     }
 
     #[tokio::test]
     async fn test_server_handler_info() {
         let (server, _temp_dir) = create_test_server(false).await;
-        
+
         // Test server handler info
         let server_info = server.get_info();
         assert!(server_info.instructions.is_some());
         assert!(server_info.instructions.as_ref().unwrap().contains("Mimir"));
-        assert!(server_info.instructions.as_ref().unwrap().contains("Memory Vault"));
+        assert!(server_info
+            .instructions
+            .as_ref()
+            .unwrap()
+            .contains("Memory Vault"));
         assert!(server_info.capabilities.tools.is_some());
     }
 }

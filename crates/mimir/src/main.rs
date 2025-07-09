@@ -2,12 +2,12 @@
 //!
 //! Main daemon process that provides both HTTP API and MCP server for AI memory management
 
+use crate::vault::{check_vault_status, ensure_vault_ready};
 use clap::{Parser, Subcommand};
 use mimir_core::{Config, Result};
 use rmcp::ServiceExt;
 use std::path::PathBuf;
 use tracing::{error, info, warn};
-use crate::vault::{ensure_vault_ready, check_vault_status};
 
 mod mcp;
 mod server;
@@ -79,7 +79,7 @@ async fn main() -> Result<()> {
         info!("No configuration file found, using defaults");
         Config::default()
     });
-    
+
     if let Some(port) = cli.port {
         config.server.port = port;
     }
@@ -94,11 +94,14 @@ async fn main() -> Result<()> {
     // Check vault status and auto-initialize if needed
     info!("Checking vault status...");
     info!("Config vault path: {}", config.get_vault_path().display());
-    info!("Config database path: {}", config.get_database_path().display());
+    info!(
+        "Config database path: {}",
+        config.get_database_path().display()
+    );
     info!("Config keyset path: {}", config.get_keyset_path().display());
     let vault_status = check_vault_status(&config);
     info!("{}", vault_status.status_message());
-    
+
     if !vault_status.is_ready() {
         if cli.auto_init {
             info!("Auto-initializing vault...");
@@ -106,7 +109,7 @@ async fn main() -> Result<()> {
         } else {
             error!("Vault not ready. Use --auto-init to auto-initialize or run 'mimir-cli init' first.");
             return Err(mimir_core::MimirError::Initialization(
-                "Vault not initialized".to_string()
+                "Vault not initialized".to_string(),
             ));
         }
     }
@@ -160,39 +163,51 @@ async fn start_http_server(config: Config) -> Result<()> {
 }
 
 /// Setup crypto managers for database and storage encryption
-async fn setup_crypto_managers(config: &Config) -> Result<(mimir_core::crypto::CryptoManager, mimir_core::crypto::CryptoManager)> {
+async fn setup_crypto_managers(
+    config: &Config,
+) -> Result<(
+    mimir_core::crypto::CryptoManager,
+    mimir_core::crypto::CryptoManager,
+)> {
     if config.use_password_encryption {
         info!("Password encryption detected. Please enter your vault password:");
-        
+
         // Read password from stdin
         let mut password = String::new();
-        std::io::stdin().read_line(&mut password)
-            .map_err(|e| mimir_core::MimirError::Initialization(format!("Failed to read password: {}", e)))?;
+        std::io::stdin().read_line(&mut password).map_err(|e| {
+            mimir_core::MimirError::Initialization(format!("Failed to read password: {}", e))
+        })?;
         let password = password.trim();
-        
+
         if password.is_empty() {
-            return Err(mimir_core::MimirError::Initialization("Password cannot be empty".to_string()));
+            return Err(mimir_core::MimirError::Initialization(
+                "Password cannot be empty".to_string(),
+            ));
         }
-        
+
         info!("Attempting to unlock vault with provided password...");
-        
-        let db_crypto_manager = mimir_core::crypto::CryptoManager::with_password(&config.get_keyset_path(), password)?;
-        let storage_crypto_manager = mimir_core::crypto::CryptoManager::with_password(&config.get_keyset_path(), password)?;
-        
+
+        let db_crypto_manager =
+            mimir_core::crypto::CryptoManager::with_password(&config.get_keyset_path(), password)?;
+        let storage_crypto_manager =
+            mimir_core::crypto::CryptoManager::with_password(&config.get_keyset_path(), password)?;
+
         Ok((db_crypto_manager, storage_crypto_manager))
     } else {
         let db_crypto_manager = mimir_core::crypto::CryptoManager::new(&config.get_keyset_path())?;
-        let storage_crypto_manager = mimir_core::crypto::CryptoManager::new(&config.get_keyset_path())?;
+        let storage_crypto_manager =
+            mimir_core::crypto::CryptoManager::new(&config.get_keyset_path())?;
         Ok((db_crypto_manager, storage_crypto_manager))
     }
 }
 
 /// Create database with crypto manager
-fn create_database(config: &Config, db_crypto_manager: mimir_core::crypto::CryptoManager) -> Result<mimir_db::Database> {
-    let database = mimir_db::Database::with_crypto_manager(
-        &config.get_database_path(),
-        db_crypto_manager,
-    )?;
+fn create_database(
+    config: &Config,
+    db_crypto_manager: mimir_core::crypto::CryptoManager,
+) -> Result<mimir_db::Database> {
+    let database =
+        mimir_db::Database::with_crypto_manager(&config.get_database_path(), db_crypto_manager)?;
     Ok(database)
 }
 
@@ -200,20 +215,28 @@ fn create_database(config: &Config, db_crypto_manager: mimir_core::crypto::Crypt
 async fn create_vector_store(config: &Config) -> Result<mimir_vector::ThreadSafeVectorStore> {
     let model_path = std::path::Path::new("crates/mimir/assets/bge-small-en-int8/model-int8.onnx");
     let vault_path = config.get_vault_path();
-    
+
     if model_path.exists() {
-        info!("Loading vector store with embedder from: {}", model_path.display());
-        
+        info!(
+            "Loading vector store with embedder from: {}",
+            model_path.display()
+        );
+
         // First try to load existing vector store data with embedder
         match mimir_vector::ThreadSafeVectorStore::load_with_embedder(
             vault_path.as_path(),
-            None, // root_key
+            None,             // root_key
             Some(model_path), // model_path for embedder
-            None, // memory config
-            None, // batch config
-        ).await {
+            None,             // memory config
+            None,             // batch config
+        )
+        .await
+        {
             Ok(Some(existing_store)) => {
-                info!("✅ Loaded existing vector store with {} vectors and embedder", existing_store.len().await);
+                info!(
+                    "✅ Loaded existing vector store with {} vectors and embedder",
+                    existing_store.len().await
+                );
                 Ok(existing_store)
             }
             Ok(None) => {
@@ -223,26 +246,37 @@ async fn create_vector_store(config: &Config) -> Result<mimir_vector::ThreadSafe
                     model_path,
                     None, // memory config
                     None, // batch config
-                ).await.map_err(|e| mimir_core::MimirError::VectorStore(e.to_string()))
+                )
+                .await
+                .map_err(|e| mimir_core::MimirError::VectorStore(e.to_string()))
             }
             Err(e) => {
-                warn!("Failed to load existing vector store: {}, creating new one", e);
+                warn!(
+                    "Failed to load existing vector store: {}, creating new one",
+                    e
+                );
                 mimir_vector::ThreadSafeVectorStore::with_embedder(
                     vault_path.as_path(),
                     model_path,
                     None, // memory config
                     None, // batch config
-                ).await.map_err(|e| mimir_core::MimirError::VectorStore(e.to_string()))
+                )
+                .await
+                .map_err(|e| mimir_core::MimirError::VectorStore(e.to_string()))
             }
         }
     } else {
-        warn!("Model file not found at {}, creating vector store without embedder", model_path.display());
+        warn!(
+            "Model file not found at {}, creating vector store without embedder",
+            model_path.display()
+        );
         mimir_vector::ThreadSafeVectorStore::new(
             vault_path.as_path(),
-            128, // dimension
+            128,  // dimension
             None, // memory config
             None, // batch config
-        ).map_err(|e| mimir_core::MimirError::VectorStore(e.to_string()))
+        )
+        .map_err(|e| mimir_core::MimirError::VectorStore(e.to_string()))
     }
 }
 
@@ -252,23 +286,23 @@ async fn create_integrated_storage(
     vector_store: mimir_vector::ThreadSafeVectorStore,
     storage_crypto_manager: mimir_core::crypto::CryptoManager,
 ) -> Result<storage::IntegratedStorage> {
-    let storage = storage::IntegratedStorage::new(
-        database,
-        vector_store,
-        storage_crypto_manager,
-    ).await?;
+    let storage =
+        storage::IntegratedStorage::new(database, vector_store, storage_crypto_manager).await?;
     Ok(storage)
 }
 
 /// Start MCP service and handle its lifecycle
 async fn start_mcp_service(mcp_server: mcp::MimirServer) -> Result<()> {
     let mcp_server_clone = mcp_server.clone();
-    match mcp_server_clone.serve((tokio::io::stdin(), tokio::io::stdout())).await {
+    match mcp_server_clone
+        .serve((tokio::io::stdin(), tokio::io::stdout()))
+        .await
+    {
         Ok(service) => {
             info!("MCP server connected and ready");
             let quit_reason = service.waiting().await;
             info!("MCP server shutdown: {:?}", quit_reason);
-            
+
             // Save vector store on clean shutdown
             info!("Attempting to save vector store on shutdown...");
             if let Err(e) = mcp_server.save_vector_store().await {
@@ -276,66 +310,72 @@ async fn start_mcp_service(mcp_server: mcp::MimirServer) -> Result<()> {
             } else {
                 info!("Vector store saved successfully on shutdown");
             }
-            
+
             Ok(())
         }
         Err(e) => {
             error!("MCP server error: {}", e);
-            
+
             // Try to save vector store even on error
             info!("Attempting to save vector store on error shutdown...");
             if let Err(save_err) = mcp_server.save_vector_store().await {
-                error!("Failed to save vector store on error shutdown: {}", save_err);
+                error!(
+                    "Failed to save vector store on error shutdown: {}",
+                    save_err
+                );
             } else {
                 info!("Vector store saved successfully on error shutdown");
             }
-            
-            Err(mimir_core::MimirError::ServerError(format!("MCP server error: {}", e)))
+
+            Err(mimir_core::MimirError::ServerError(format!(
+                "MCP server error: {}",
+                e
+            )))
         }
     }
 }
 
 async fn start_mcp_server(config: Config) -> Result<()> {
     info!("Starting MCP server");
-    
+
     // Setup crypto managers
     let (db_crypto_manager, storage_crypto_manager) = setup_crypto_managers(&config).await?;
-    
+
     // Create database
     let database = create_database(&config, db_crypto_manager)?;
-    
+
     // Create vector store
     let vector_store = create_vector_store(&config).await?;
-    
+
     // Create integrated storage
     let storage = create_integrated_storage(database, vector_store, storage_crypto_manager).await?;
-    
+
     // Create the MCP server with integrated storage
     let mcp_server = mcp::MimirServer::new(storage);
-    
+
     // Start the MCP service
     start_mcp_service(mcp_server).await
 }
 
 async fn start_both_servers(config: Config) -> Result<()> {
     info!("Starting both HTTP and MCP servers concurrently");
-    
+
     let config_http = config.clone();
     let _config_mcp = config.clone();
-    
+
     // Start both servers concurrently
     let http_handle = tokio::spawn(async move {
         if let Err(e) = server::start(config_http).await {
             error!("HTTP server error: {}", e);
         }
     });
-    
+
     let mcp_handle = tokio::spawn(async move {
         // For now, we'll skip MCP server in "both" mode since it requires storage setup
         // TODO: Implement proper storage setup for both mode
         info!("MCP server not yet implemented in 'both' mode");
     });
-    
+
     // Wait for both servers (they should run indefinitely)
     tokio::select! {
         _ = http_handle => {
@@ -345,7 +385,7 @@ async fn start_both_servers(config: Config) -> Result<()> {
             info!("MCP server terminated");
         }
     }
-    
+
     Ok(())
 }
 
@@ -442,7 +482,7 @@ mod tests {
         let mut cmd = Cli::command();
         let help = cmd.render_help();
         let help_str = help.to_string();
-        
+
         assert!(help_str.contains("local-first, zero-knowledge AI memory vault"));
         assert!(help_str.contains("--debug"));
         assert!(help_str.contains("--port"));
@@ -472,12 +512,12 @@ mod tests {
         // Test default mode with MCP enabled
         let mut config = Config::default();
         config.mcp.enabled = true;
-        
+
         // When no mode is specified and MCP is enabled, should default to Both
         // This tests the logic in main() but we can't easily test that function directly
         // So we test the config building logic
         assert!(config.mcp.enabled);
-        
+
         // Test default mode with MCP disabled
         config.mcp.enabled = false;
         assert!(!config.mcp.enabled);
@@ -504,7 +544,8 @@ mod tests {
     #[test]
     fn test_complex_cli_scenarios() {
         // Test global flags with subcommands
-        let cli = Cli::try_parse_from(&["mimir", "--debug", "--port", "7777", "mcp", "--stdio"]).unwrap();
+        let cli =
+            Cli::try_parse_from(&["mimir", "--debug", "--port", "7777", "mcp", "--stdio"]).unwrap();
         assert!(cli.debug);
         assert_eq!(cli.port, Some(7777));
         match cli.mode.unwrap() {
@@ -514,14 +555,18 @@ mod tests {
 
         // Test all flags together
         let cli = Cli::try_parse_from(&[
-            "mimir", 
-            "--config", "test.toml",
+            "mimir",
+            "--config",
+            "test.toml",
             "--debug",
-            "--port", "5555",
+            "--port",
+            "5555",
             "both",
-            "--http-port", "6666"
-        ]).unwrap();
-        
+            "--http-port",
+            "6666",
+        ])
+        .unwrap();
+
         assert!(cli.debug);
         assert_eq!(cli.port, Some(5555));
         assert_eq!(cli.config, Some(PathBuf::from("test.toml")));
@@ -541,13 +586,13 @@ mod tests {
             let temp_dir = TempDir::new().unwrap();
             let db_path = temp_dir.path().join("test.db");
             let keyset_path = temp_dir.path().join("keyset.json");
-            
+
             let mut config = Config::default();
             config.vault_path = temp_dir.path().to_path_buf();
-            
+
             let crypto_manager = mimir_core::crypto::CryptoManager::new(&keyset_path)
                 .expect("Failed to create test crypto manager");
-            
+
             let result = create_database(&config, crypto_manager);
             assert!(result.is_ok());
             // Removed assertion that db_path.exists() as file creation is not guaranteed until a write occurs
@@ -557,14 +602,14 @@ mod tests {
         fn test_create_database_with_invalid_path() {
             let temp_dir = TempDir::new().unwrap();
             let keyset_path = temp_dir.path().join("keyset.json");
-            
+
             let mut config = Config::default();
             // Set an invalid path that should cause an error
             config.vault_path = PathBuf::from("/invalid/path/that/does/not/exist");
-            
+
             let crypto_manager = mimir_core::crypto::CryptoManager::new(&keyset_path)
                 .expect("Failed to create test crypto manager");
-            
+
             let result = create_database(&config, crypto_manager);
             // This should fail due to invalid path
             assert!(result.is_err());
@@ -575,26 +620,24 @@ mod tests {
             let temp_dir = TempDir::new().unwrap();
             let db_path = temp_dir.path().join("test.db");
             let keyset_path = temp_dir.path().join("keyset.json");
-            
+
             // Create crypto manager
             let db_crypto_manager = mimir_core::crypto::CryptoManager::new(&keyset_path)
                 .expect("Failed to create test crypto manager");
             let storage_crypto_manager = mimir_core::crypto::CryptoManager::new(&keyset_path)
                 .expect("Failed to create test crypto manager");
-            
+
             // Create database
             let database = mimir_db::Database::with_crypto_manager(&db_path, db_crypto_manager)
                 .expect("Failed to create test database");
-            
+
             // Create vector store
-            let vector_store = mimir_vector::ThreadSafeVectorStore::new(
-                temp_dir.path(),
-                128,
-                None,
-                None,
-            ).expect("Failed to create test vector store");
-            
-            let result = create_integrated_storage(database, vector_store, storage_crypto_manager).await;
+            let vector_store =
+                mimir_vector::ThreadSafeVectorStore::new(temp_dir.path(), 128, None, None)
+                    .expect("Failed to create test vector store");
+
+            let result =
+                create_integrated_storage(database, vector_store, storage_crypto_manager).await;
             assert!(result.is_ok());
         }
 
@@ -603,11 +646,11 @@ mod tests {
             let temp_dir = TempDir::new().unwrap();
             let mut config = Config::default();
             config.vault_path = temp_dir.path().to_path_buf();
-            
+
             // Test creating vector store without embedder (model file doesn't exist)
             let result = create_vector_store(&config).await;
             assert!(result.is_ok());
-            
+
             // Verify vector store directory was created
             assert!(temp_dir.path().exists());
         }
@@ -618,13 +661,13 @@ mod tests {
             let mut config = Config::default();
             config.vault_path = temp_dir.path().to_path_buf();
             config.use_password_encryption = false;
-            
+
             // This test would require mocking stdin for password input
             // For now, we'll just test the no-password path
             let rt = tokio::runtime::Runtime::new().unwrap();
             let result = rt.block_on(setup_crypto_managers(&config));
             assert!(result.is_ok());
-            
+
             let (db_crypto, storage_crypto) = result.unwrap();
             // Verify both crypto managers were created by checking keyset file exists
             assert!(config.get_keyset_path().exists());
@@ -634,17 +677,17 @@ mod tests {
         fn test_helper_functions_error_handling() {
             let temp_dir = TempDir::new().unwrap();
             let keyset_path = temp_dir.path().join("keyset.json");
-            
+
             let mut config = Config::default();
             config.vault_path = PathBuf::from("/invalid/path");
-            
+
             let crypto_manager = mimir_core::crypto::CryptoManager::new(&keyset_path)
                 .expect("Failed to create test crypto manager");
-            
+
             // Test that create_database properly handles invalid paths
             let result = create_database(&config, crypto_manager);
             assert!(result.is_err());
-            
+
             // Verify the error is of the expected type
             match result {
                 Err(mimir_core::MimirError::Database(_)) => {

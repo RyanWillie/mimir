@@ -584,6 +584,10 @@ mod tests {
     // Tests for embedder integration (requires actual model)
     #[tokio::test]
     async fn test_with_embedder() {
+        // Skip this test in CI environment where model files are not available
+        if std::env::var("CI").is_ok() {
+            return;
+        }
         use mimir_core::test_utils::generators::generate_test_embedding;
         use std::path::PathBuf;
         use uuid::Uuid;
@@ -644,6 +648,10 @@ mod tests {
 
     #[tokio::test]
     async fn test_with_embedder_and_rotation() {
+        // Skip this test in CI environment where model files are not available
+        if std::env::var("CI").is_ok() {
+            return;
+        }
         use mimir_core::crypto::RootKey;
         use mimir_core::test_utils::generators::generate_test_embedding;
         use std::path::PathBuf;

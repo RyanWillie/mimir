@@ -39,7 +39,7 @@ jobs:
     - name: Install system dependencies
       run: |
         sudo apt-get update
-        sudo apt-get install -y libsqlcipher-dev libglib2.0-dev pkg-config libgtk-3-dev libjavascriptcoregtk-4.1-dev
+        sudo apt-get install -y libsqlcipher-dev libglib2.0-dev pkg-config libgtk-3-dev libjavascriptcoregtk-4.1-dev libsoup-3.0-dev libwebkit2gtk-4.1-dev libgirepository1.0-dev libcairo2-dev libpango1.0-dev libatk1.0-dev libgdk-pixbuf2.0-dev libx11-dev libxcomposite-dev libxdamage-dev libxext-dev libxfixes-dev libxrandr-dev libxss-dev libxtst-dev libnss3-dev libdrm-dev libxkbcommon-dev libxshmfence-dev libgbm-dev libasound2-dev libpulse-dev libharfbuzz-dev libfontconfig1-dev libfreetype6-dev libpng-dev libjpeg-dev libtiff-dev libgif-dev libwebp-dev libxml2-dev libxslt-dev libsqlite3-dev libssl-dev libffi-dev
 
     - name: Check formatting
       run: cargo fmt --all -- --check
@@ -81,12 +81,16 @@ jobs:
       if: matrix.os == 'ubuntu-latest'
       run: |
         sudo apt-get update
-        sudo apt-get install -y libsqlcipher-dev libglib2.0-dev pkg-config libgtk-3-dev libjavascriptcoregtk-4.1-dev libsoup-3.0-dev
+        sudo apt-get install -y libsqlcipher-dev libglib2.0-dev pkg-config libgtk-3-dev libjavascriptcoregtk-4.1-dev libsoup-3.0-dev libwebkit2gtk-4.1-dev libgirepository1.0-dev libcairo2-dev libpango1.0-dev libatk1.0-dev libgdk-pixbuf2.0-dev libx11-dev libxcomposite-dev libxdamage-dev libxext-dev libxfixes-dev libxrandr-dev libxss-dev libxtst-dev libnss3-dev libdrm-dev libxkbcommon-dev libxshmfence-dev libgbm-dev libasound2-dev libpulse-dev libharfbuzz-dev libfontconfig1-dev libfreetype6-dev libpng-dev libjpeg-dev libtiff-dev libgif-dev libwebp-dev libxml2-dev libxslt-dev libsqlite3-dev libssl-dev libffi-dev
 
     - name: Install system dependencies (macOS)
       if: matrix.os == 'macos-latest'
       run: |
         brew install sqlcipher
+        # Install Xcode command line tools for Tauri (skip if already installed)
+        xcode-select -p >/dev/null 2>&1 || xcode-select --install || true
+        # Install additional dependencies that might be needed
+        brew install pkg-config openssl
 
     - name: Run core unit tests
       run: cargo test -p mimir-core --lib
@@ -100,6 +104,10 @@ jobs:
 
     - name: Run SDK unit tests
       run: cargo test -p mimir-sdk --lib
+
+    - name: Run tray unit tests (skip on macOS due to Tauri dependencies)
+      if: matrix.os != 'macos-latest'
+      run: cargo test -p mimir-tray --lib
 
   integration-tests:
     name: Integration Tests
@@ -124,7 +132,7 @@ jobs:
     - name: Install system dependencies
       run: |
         sudo apt-get update
-        sudo apt-get install -y libsqlcipher-dev libglib2.0-dev pkg-config libgtk-3-dev libjavascriptcoregtk-4.1-dev libsoup-3.0-dev
+        sudo apt-get install -y libsqlcipher-dev libglib2.0-dev pkg-config libgtk-3-dev libjavascriptcoregtk-4.1-dev libsoup-3.0-dev libwebkit2gtk-4.1-dev libgirepository1.0-dev libcairo2-dev libpango1.0-dev libatk1.0-dev libgdk-pixbuf2.0-dev libx11-dev libxcomposite-dev libxdamage-dev libxext-dev libxfixes-dev libxrandr-dev libxss-dev libxtst-dev libnss3-dev libdrm-dev libxkbcommon-dev libxshmfence-dev libgbm-dev libasound2-dev libpulse-dev libharfbuzz-dev libfontconfig1-dev libfreetype6-dev libpng-dev libjpeg-dev libtiff-dev libgif-dev libwebp-dev libxml2-dev libxslt-dev libsqlite3-dev libssl-dev libffi-dev
 
     - name: Run server integration tests
       run: cargo test -p mimir --test '*' --all-features
@@ -155,7 +163,7 @@ jobs:
     - name: Install system dependencies
       run: |
         sudo apt-get update
-        sudo apt-get install -y libsqlcipher-dev libglib2.0-dev pkg-config libgtk-3-dev libjavascriptcoregtk-4.1-dev libsoup-3.0-dev
+        sudo apt-get install -y libsqlcipher-dev libglib2.0-dev pkg-config libgtk-3-dev libjavascriptcoregtk-4.1-dev libsoup-3.0-dev libwebkit2gtk-4.1-dev libgirepository1.0-dev libcairo2-dev libpango1.0-dev libatk1.0-dev libgdk-pixbuf2.0-dev libx11-dev libxcomposite-dev libxdamage-dev libxext-dev libxfixes-dev libxrandr-dev libxss-dev libxtst-dev libnss3-dev libdrm-dev libxkbcommon-dev libxshmfence-dev libgbm-dev libasound2-dev libpulse-dev libharfbuzz-dev libfontconfig1-dev libfreetype6-dev libpng-dev libjpeg-dev libtiff-dev libgif-dev libwebp-dev libxml2-dev libxslt-dev libsqlite3-dev libssl-dev libffi-dev
 
     - name: Run core benchmarks (quick)
       run: cargo bench -p mimir-core --bench memory_operations -- --sample-size 10
@@ -201,7 +209,7 @@ jobs:
     - name: Install system dependencies
       run: |
         sudo apt-get update
-        sudo apt-get install -y libsqlcipher-dev libglib2.0-dev pkg-config libgtk-3-dev libjavascriptcoregtk-4.1-dev libsoup-3.0-dev
+        sudo apt-get install -y libsqlcipher-dev libglib2.0-dev pkg-config libgtk-3-dev libjavascriptcoregtk-4.1-dev libsoup-3.0-dev libwebkit2gtk-4.1-dev libgirepository1.0-dev libcairo2-dev libpango1.0-dev libatk1.0-dev libgdk-pixbuf2.0-dev libx11-dev libxcomposite-dev libxdamage-dev libxext-dev libxfixes-dev libxrandr-dev libxss-dev libxtst-dev libnss3-dev libdrm-dev libxkbcommon-dev libxshmfence-dev libgbm-dev libasound2-dev libpulse-dev libharfbuzz-dev libfontconfig1-dev libfreetype6-dev libpng-dev libjpeg-dev libtiff-dev libgif-dev libwebp-dev libxml2-dev libxslt-dev libsqlite3-dev libssl-dev libffi-dev
 
     - name: Install cargo-llvm-cov
       run: cargo install cargo-llvm-cov
@@ -243,11 +251,16 @@ jobs:
       if: matrix.os == 'ubuntu-latest'
       run: |
         sudo apt-get update
-        sudo apt-get install -y libsqlcipher-dev libglib2.0-dev pkg-config libgtk-3-dev libjavascriptcoregtk-4.1-dev libsoup-3.0-dev
+        sudo apt-get install -y libsqlcipher-dev libglib2.0-dev pkg-config libgtk-3-dev libjavascriptcoregtk-4.1-dev libsoup-3.0-dev libwebkit2gtk-4.1-dev libgirepository1.0-dev libcairo2-dev libpango1.0-dev libatk1.0-dev libgdk-pixbuf2.0-dev libx11-dev libxcomposite-dev libxdamage-dev libxext-dev libxfixes-dev libxrandr-dev libxss-dev libxtst-dev libnss3-dev libdrm-dev libxkbcommon-dev libxshmfence-dev libgbm-dev libasound2-dev libpulse-dev libharfbuzz-dev libfontconfig1-dev libfreetype6-dev libpng-dev libjpeg-dev libtiff-dev libgif-dev libwebp-dev libxml2-dev libxslt-dev libsqlite3-dev libssl-dev libffi-dev
 
     - name: Install system dependencies (macOS)
       if: matrix.os == 'macos-latest'
-      run: brew install sqlcipher
+      run: |
+        brew install sqlcipher
+        # Install Xcode command line tools for Tauri (skip if already installed)
+        xcode-select -p >/dev/null 2>&1 || xcode-select --install || true
+        # Install additional dependencies that might be needed
+        brew install pkg-config openssl
 
     - name: Check all crates build
       run: cargo check --workspace --all-targets --all-features
@@ -289,11 +302,16 @@ jobs:
       if: matrix.os == 'ubuntu-latest'
       run: |
         sudo apt-get update
-        sudo apt-get install -y libsqlcipher-dev libglib2.0-dev pkg-config libgtk-3-dev libjavascriptcoregtk-4.1-dev libsoup-3.0-dev
+        sudo apt-get install -y libsqlcipher-dev libglib2.0-dev pkg-config libgtk-3-dev libjavascriptcoregtk-4.1-dev libsoup-3.0-dev libwebkit2gtk-4.1-dev libgirepository1.0-dev libcairo2-dev libpango1.0-dev libatk1.0-dev libgdk-pixbuf2.0-dev libx11-dev libxcomposite-dev libxdamage-dev libxext-dev libxfixes-dev libxrandr-dev libxss-dev libxtst-dev libnss3-dev libdrm-dev libxkbcommon-dev libxshmfence-dev libgbm-dev libasound2-dev libpulse-dev libharfbuzz-dev libfontconfig1-dev libfreetype6-dev libpng-dev libjpeg-dev libtiff-dev libgif-dev libwebp-dev libxml2-dev libxslt-dev libsqlite3-dev libssl-dev libffi-dev
 
     - name: Install system dependencies (macOS)
       if: matrix.os == 'macos-latest'
-      run: brew install sqlcipher
+      run: |
+        brew install sqlcipher
+        # Install Xcode command line tools for Tauri (skip if already installed)
+        xcode-select -p >/dev/null 2>&1 || xcode-select --install || true
+        # Install additional dependencies that might be needed
+        brew install pkg-config openssl
 
     - name: Build release binary
       run: cargo build --release --target ${{ matrix.target }} -p mimir

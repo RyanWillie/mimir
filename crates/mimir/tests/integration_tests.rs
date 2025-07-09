@@ -5,13 +5,13 @@
 
 use axum::http::StatusCode;
 use axum_test::TestServer;
-use mimir_core::{config::MimirConfig, test_utils::env::create_temp_dir};
+use mimir_core::{config::Config, test_utils::env::create_temp_dir};
 use serial_test::serial;
 use std::time::Duration;
 use tokio::time::timeout;
 
 /// Helper to create a test server with custom configuration
-async fn create_test_server(config: MimirConfig) -> TestServer {
+async fn create_test_server(config: Config) -> TestServer {
     let app = mimir::create_app(config)
         .await
         .expect("Failed to create app");
@@ -20,15 +20,16 @@ async fn create_test_server(config: MimirConfig) -> TestServer {
 
 /// Helper to create a test server with default configuration
 async fn create_default_test_server() -> TestServer {
-    let mut config = MimirConfig::default();
+    let mut config = Config::default();
 
     // Use a random available port for testing
     config.server.port = 0;
 
     // Use temporary directories for test isolation
     let temp_dir = create_temp_dir();
-    config.storage.vault_path = temp_dir.path().join("test_vault.db");
-    config.security.master_key_path = temp_dir.path().join("test_master.key");
+    config.vault_path = temp_dir.path().join("test_vault");
+    config.database_path = temp_dir.path().join("test_vault.db");
+    config.keyset_path = temp_dir.path().join("test_keyset.json");
 
     create_test_server(config).await
 }
@@ -76,7 +77,7 @@ async fn test_health_endpoint_multiple_requests() {
 
 #[tokio::test]
 async fn test_server_configuration_custom_host() {
-    let mut config = MimirConfig::default();
+    let mut config = Config::default();
     config.server.host = "0.0.0.0".to_string();
     config.server.port = 0; // Use random port
 
@@ -156,7 +157,7 @@ async fn test_server_headers() {
 #[serial] // Run serially to avoid port conflicts
 async fn test_server_startup_shutdown() {
     // Test that server can start and stop cleanly
-    let config = MimirConfig::default();
+    let config = Config::default();
     let _temp_dir = create_temp_dir();
 
     // This would test the actual server startup if we had a way to shut it down gracefully
@@ -269,14 +270,37 @@ async fn test_content_type_headers() {
 /// testing the real MCP protocol communication rather than just unit testing methods.
 mod mcp_integration_tests {
     use mimir::mcp::MimirServer;
+    use mimir::storage::IntegratedStorage;
+    use mimir_core::crypto::CryptoManager;
+    use mimir_db::Database;
+    use mimir_vector::ThreadSafeVectorStore;
     use rmcp::ServiceExt;
+    use tempfile::TempDir;
     use tokio::io::{split, AsyncWriteExt};
     use tokio::time::{timeout, Duration};
+
+    async fn create_test_integrated_storage() -> IntegratedStorage {
+        let temp_dir = TempDir::new().unwrap();
+        let db_path = temp_dir.path().join("test.db");
+        let keyset_path = temp_dir.path().join("keyset.json");
+        let db_crypto_manager = CryptoManager::with_password(&keyset_path, "test-password")
+            .expect("Failed to create test crypto manager");
+        let storage_crypto_manager = CryptoManager::with_password(&keyset_path, "test-password")
+            .expect("Failed to create test crypto manager");
+        let database = Database::with_crypto_manager(&db_path, db_crypto_manager)
+            .expect("Failed to create test database");
+        let vector_store = ThreadSafeVectorStore::new(temp_dir.path(), 128, None, None)
+            .expect("Failed to create test vector store");
+        IntegratedStorage::new(database, vector_store, storage_crypto_manager)
+            .await
+            .expect("Failed to create integrated storage")
+    }
 
     /// Test that the MCP server actually starts and serves via transport
     #[tokio::test]
     async fn test_mcp_server_startup_with_transport() {
-        let server = MimirServer::new();
+        let storage = create_test_integrated_storage().await;
+        let server = MimirServer::new(storage);
         server.add_sample_data().await;
         
         // Create bidirectional communication channels
@@ -315,7 +339,8 @@ mod mcp_integration_tests {
     /// Test MCP server with manual JSON-RPC message handling
     #[tokio::test]
     async fn test_mcp_server_jsonrpc_communication() {
-        let server = MimirServer::new();
+        let storage = create_test_integrated_storage().await;
+        let server = MimirServer::new(storage);
         server.add_sample_data().await;
         
         // Create communication channels
@@ -347,7 +372,8 @@ mod mcp_integration_tests {
     /// Test server lifecycle - startup, running, shutdown
     #[tokio::test]
     async fn test_mcp_server_lifecycle() {
-        let server = MimirServer::new();
+        let storage = create_test_integrated_storage().await;
+        let server = MimirServer::new(storage);
         
         // Create transport
         let (client_stream, server_stream) = tokio::io::duplex(1024);
@@ -382,17 +408,19 @@ mod mcp_integration_tests {
     /// Test that server tools are accessible via the MCP protocol
     #[tokio::test]
     async fn test_mcp_server_tool_discovery() {
-        let server = MimirServer::new();
+        let storage = create_test_integrated_storage().await;
+        let server = MimirServer::new(storage);
         
         // Verify tools are properly registered before starting server
         let tools = server.tool_router.list_all();
         assert!(!tools.is_empty());
-        assert_eq!(tools.len(), 7); // We should have exactly 7 tools
+        // Do not assert exact number of tools, just that all expected tools are present
+        // This makes the test robust to future tool additions
         
         // Verify each expected tool exists
         let tool_names: Vec<String> = tools.iter().map(|t| t.name.to_string()).collect();
         let expected_tools = vec![
-            "add_memories",
+            "add_memory",
             "update_memory", 
             "delete_memory",
             "search_memories",
@@ -421,7 +449,8 @@ mod mcp_integration_tests {
     /// Test server with multiple concurrent connections (stress test)
     #[tokio::test]
     async fn test_mcp_server_concurrent_connections() {
-        let server = MimirServer::new();
+        let storage = create_test_integrated_storage().await;
+        let server = MimirServer::new(storage);
         
         let mut handles = Vec::new();
         

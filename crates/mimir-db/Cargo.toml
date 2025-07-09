@@ -9,15 +9,17 @@ description = "Encrypted database for Mimir AI Memory Vault"
 
 [dependencies]
 mimir-core = { path = "../mimir-core" }
-rusqlite = { version = "0.30", features = ["sqlcipher"] }
+rusqlite = { version = "0.30", features = ["sqlcipher", "bundled"] }
 anyhow = "1.0"
 hex = "0.4"
 uuid = "1.6"
 chrono = "0.4"
 serde_json = "1.0"
+tokio = { workspace = true, features = ["sync"] }
 
 [dev-dependencies]
 mimir-core = { path = "../mimir-core", features = ["test-utils"] }
+tokio = { workspace = true, features = ["full"] }
 tokio-test.workspace = true
 tempfile.workspace = true
 serial_test.workspace = true 

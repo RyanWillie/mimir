@@ -10,6 +10,15 @@ description.workspace = true
 keywords.workspace = true
 categories.workspace = true
 
+[[bin]]
+name = "calculate_checksums"
+path = "src/calculate_checksums.rs"
+
+[[bin]]
+name = "test_build"
+path = "src/test_build.rs"
+
 [dependencies]
 mimir-core = { path = "../crates/mimir-core" }
 hex = "0.4"
+sha2 = "0.10"

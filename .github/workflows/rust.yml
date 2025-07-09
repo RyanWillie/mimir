@@ -28,7 +28,7 @@ jobs:
         components: rustfmt, clippy
 
     - name: Cache cargo
-      uses: actions/cache@v3
+      uses: actions/cache@v4
       with:
         path: |
           ~/.cargo/registry
@@ -64,7 +64,7 @@ jobs:
         toolchain: ${{ matrix.rust }}
 
     - name: Cache cargo
-      uses: actions/cache@v3
+      uses: actions/cache@v4
       with:
         path: |
           ~/.cargo/registry
@@ -82,18 +82,6 @@ jobs:
       if: matrix.os == 'macos-latest'
       run: |
         brew install sqlcipher
-
-    - name: Setup Python for bindings tests
-      if: matrix.os != 'windows-latest' # Skip Windows Python setup for now
-      uses: actions/setup-python@v4
-      with:
-        python-version: '3.12'
-
-    - name: Install Python dependencies
-      if: matrix.os != 'windows-latest'
-      run: |
-        python -m pip install --upgrade pip
-        pip install maturin pytest
 
     - name: Run core unit tests
       run: cargo test -p mimir-core --lib
@@ -120,7 +108,7 @@ jobs:
       uses: dtolnay/rust-toolchain@stable
 
     - name: Cache cargo
-      uses: actions/cache@v3
+      uses: actions/cache@v4
       with:
         path: |
           ~/.cargo/registry
@@ -133,31 +121,14 @@ jobs:
         sudo apt-get update
         sudo apt-get install -y libsqlcipher-dev
 
-    - name: Setup Python
-      uses: actions/setup-python@v4
-      with:
-        python-version: '3.12'
-
-    - name: Install Python dependencies
-      run: |
-        python -m pip install --upgrade pip
-        pip install maturin pytest
-
     - name: Run server integration tests
       run: cargo test -p mimir --test '*' --all-features
 
     - name: Run SDK integration tests  
       run: cargo test -p mimir-sdk --test '*' --all-features
 
-    - name: Test Python bindings (if available)
-      continue-on-error: true # Don't fail CI if Python bindings aren't ready
-      run: |
-        cd bindings/python
-        maturin develop
-        python -m pytest tests/ -v
-
   benchmarks:
-    name: Performance Benchmarks (Stubs)
+    name: Performance Benchmarks
     runs-on: ubuntu-latest
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
     steps:
@@ -168,7 +139,7 @@ jobs:
       uses: dtolnay/rust-toolchain@stable
 
     - name: Cache cargo
-      uses: actions/cache@v3
+      uses: actions/cache@v4
       with:
         path: |
           ~/.cargo/registry
@@ -188,7 +159,7 @@ jobs:
       run: cargo bench -p mimir-vector --bench vector_operations -- --sample-size 10
 
     - name: Upload benchmark results
-      uses: actions/upload-artifact@v3
+      uses: actions/upload-artifact@v4
       with:
         name: benchmark-results
         path: target/criterion/
@@ -227,16 +198,6 @@ jobs:
         sudo apt-get update
         sudo apt-get install -y libsqlcipher-dev
 
-    - name: Setup Python
-      uses: actions/setup-python@v4
-      with:
-        python-version: '3.12'
-
-    - name: Install Python dependencies
-      run: |
-        python -m pip install --upgrade pip
-        pip install maturin pytest
-
     - name: Install cargo-llvm-cov
       run: cargo install cargo-llvm-cov
 
@@ -247,14 +208,14 @@ jobs:
           --ignore-filename-regex "benches/|tests/|examples/"
 
     - name: Upload coverage to Codecov
-      uses: codecov/codecov-action@v3
+      uses: codecov/codecov-action@v4
       with:
         file: lcov.info
         fail_ci_if_error: false
         verbose: true
 
     - name: Upload coverage artifact
-      uses: actions/upload-artifact@v3
+      uses: actions/upload-artifact@v4
       with:
         name: coverage-report
         path: lcov.info

@@ -1,10 +1,10 @@
 //! Batch operations for vector store
 
 use crate::error::VectorResult;
-use crate::hnsw_store::{SecureVectorStore, SearchResult};
+use crate::hnsw_store::{SearchResult, SecureVectorStore};
 use mimir_core::MemoryId;
-use std::sync::Arc;
 use parking_lot::Mutex;
+use std::sync::Arc;
 
 /// Batch operation configuration
 #[derive(Debug, Clone)]
@@ -85,7 +85,7 @@ impl BatchOperations {
             store: Arc::new(Mutex::new(store)),
         }
     }
-    
+
     /// Insert multiple vectors in batch
     pub async fn batch_insert(
         &self,
@@ -94,7 +94,7 @@ impl BatchOperations {
         // For now, only support sequential processing to avoid Send trait issues
         self.batch_insert_sequential(vectors).await
     }
-    
+
     /// Sequential batch insertion
     async fn batch_insert_sequential(
         &self,
@@ -105,11 +105,14 @@ impl BatchOperations {
             failed_count: 0,
             errors: Vec::new(),
         };
-        
+
         let mut store = self.store.lock();
-        
+
         for vector_insert in vectors {
-            match store.add_raw_vector(vector_insert.vector, vector_insert.memory_id).await {
+            match store
+                .add_raw_vector(vector_insert.vector, vector_insert.memory_id)
+                .await
+            {
                 Ok(_) => result.inserted_count += 1,
                 Err(e) => {
                     result.failed_count += 1;
@@ -117,19 +120,16 @@ impl BatchOperations {
                 }
             }
         }
-        
+
         Ok(result)
     }
-    
+
     /// Search multiple vectors in batch
-    pub async fn batch_search(
-        &self,
-        queries: Vec<SearchQuery>,
-    ) -> VectorResult<BatchSearchResult> {
+    pub async fn batch_search(&self, queries: Vec<SearchQuery>) -> VectorResult<BatchSearchResult> {
         // For now, only support sequential processing to avoid Send trait issues
         self.batch_search_sequential(queries).await
     }
-    
+
     /// Sequential batch search
     async fn batch_search_sequential(
         &self,
@@ -141,9 +141,9 @@ impl BatchOperations {
             failed_count: 0,
             errors: Vec::new(),
         };
-        
+
         let store = self.store.lock();
-        
+
         for (i, query) in queries.into_iter().enumerate() {
             match store.search_raw_vector(&query.query_vector, query.k).await {
                 Ok(search_results) => {
@@ -157,15 +157,15 @@ impl BatchOperations {
                 }
             }
         }
-        
+
         Ok(result)
     }
-    
+
     /// Get configuration
     pub fn config(&self) -> &BatchConfig {
         &self.config
     }
-    
+
     /// Update configuration
     pub fn update_config(&mut self, config: BatchConfig) {
         self.config = config;
@@ -184,37 +184,37 @@ impl BatchOperationsBuilder {
             config: BatchConfig::default(),
         }
     }
-    
+
     /// Set insert batch size
     pub fn insert_batch_size(mut self, size: usize) -> Self {
         self.config.insert_batch_size = size;
         self
     }
-    
+
     /// Set search batch size
     pub fn search_batch_size(mut self, size: usize) -> Self {
         self.config.search_batch_size = size;
         self
     }
-    
+
     /// Set number of worker threads
     pub fn worker_threads(mut self, threads: usize) -> Self {
         self.config.worker_threads = threads;
         self
     }
-    
+
     /// Enable/disable parallel processing
     pub fn parallel_processing(mut self, enabled: bool) -> Self {
         self.config.parallel_processing = enabled;
         self
     }
-    
+
     /// Set timeout
     pub fn timeout_seconds(mut self, timeout: u64) -> Self {
         self.config.timeout_seconds = timeout;
         self
     }
-    
+
     /// Build batch operations
     pub fn build(self, store: SecureVectorStore<'static>) -> BatchOperations {
         BatchOperations::new(store, self.config)
@@ -232,14 +232,14 @@ mod tests {
     use super::*;
     use mimir_core::test_utils::generators::generate_test_embedding;
     use uuid::Uuid;
-    
+
     #[tokio::test]
     async fn test_batch_insert_sequential() {
         let store = SecureVectorStore::new(128).unwrap();
         let batch_ops = BatchOperationsBuilder::new()
             .parallel_processing(false)
             .build(store);
-        
+
         let vectors = vec![
             VectorInsert {
                 memory_id: Uuid::new_v4(),
@@ -250,38 +250,39 @@ mod tests {
                 vector: generate_test_embedding(128),
             },
         ];
-        
+
         let result = batch_ops.batch_insert(vectors).await.unwrap();
         assert_eq!(result.inserted_count, 2);
         assert_eq!(result.failed_count, 0);
     }
-    
+
     #[tokio::test]
     async fn test_batch_search_sequential() {
         let mut store = SecureVectorStore::new(128).unwrap();
-        
+
         // Add some test vectors
         let memory_id = Uuid::new_v4();
         let vector = generate_test_embedding(128);
-        store.add_raw_vector(vector.clone(), memory_id).await.unwrap();
-        
+        store
+            .add_raw_vector(vector.clone(), memory_id)
+            .await
+            .unwrap();
+
         let batch_ops = BatchOperationsBuilder::new()
             .parallel_processing(false)
             .build(store);
-        
-        let queries = vec![
-            SearchQuery {
-                query_vector: vector,
-                k: 5,
-            },
-        ];
-        
+
+        let queries = vec![SearchQuery {
+            query_vector: vector,
+            k: 5,
+        }];
+
         let result = batch_ops.batch_search(queries).await.unwrap();
         assert_eq!(result.successful_count, 1);
         assert_eq!(result.failed_count, 0);
         assert_eq!(result.results.len(), 1);
     }
-    
+
     #[test]
     fn test_batch_config_default() {
         let config = BatchConfig::default();
@@ -289,7 +290,7 @@ mod tests {
         assert_eq!(config.search_batch_size, 100);
         assert!(config.parallel_processing);
     }
-    
+
     #[test]
     fn test_batch_operations_builder() {
         let batch_ops = BatchOperationsBuilder::new()
@@ -299,7 +300,7 @@ mod tests {
             .parallel_processing(false)
             .timeout_seconds(60)
             .build(SecureVectorStore::new(128).unwrap());
-        
+
         let config = batch_ops.config();
         assert_eq!(config.insert_batch_size, 500);
         assert_eq!(config.search_batch_size, 50);
@@ -307,4 +308,4 @@ mod tests {
         assert!(!config.parallel_processing);
         assert_eq!(config.timeout_seconds, 60);
     }
-} 
+}

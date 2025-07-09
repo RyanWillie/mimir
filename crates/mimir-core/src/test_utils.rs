@@ -272,10 +272,10 @@ pub mod generators {
 // Only include env module when test-utils feature is explicitly enabled
 #[cfg(feature = "test-utils")]
 pub mod env {
+    use crate::crypto::CryptoManager;
     use std::path::PathBuf;
     use tempfile;
-    use crate::crypto::CryptoManager;
-    
+
     /// Create a temporary directory for test data
     pub fn create_temp_dir() -> tempfile::TempDir {
         tempfile::tempdir().expect("Failed to create temp directory")
@@ -295,12 +295,15 @@ pub mod env {
     pub fn create_test_crypto_manager() -> (CryptoManager, tempfile::TempDir) {
         let temp_dir = create_temp_dir();
         let keyset_path = temp_dir.path().join("keyset.json");
-        let crypto_manager = CryptoManager::new(&keyset_path).expect("Failed to create crypto manager");
+        let crypto_manager =
+            CryptoManager::new(&keyset_path).expect("Failed to create crypto manager");
         (crypto_manager, temp_dir)
     }
 
     /// Create a test crypto manager with password-based encryption
-    pub fn create_test_crypto_manager_with_password(password: &str) -> (CryptoManager, tempfile::TempDir) {
+    pub fn create_test_crypto_manager_with_password(
+        password: &str,
+    ) -> (CryptoManager, tempfile::TempDir) {
         let temp_dir = create_temp_dir();
         let keyset_path = temp_dir.path().join("keyset.json");
         let crypto_manager = CryptoManager::with_password(&keyset_path, password)

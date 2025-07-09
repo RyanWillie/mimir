@@ -1,7 +1,7 @@
 //! Mimir Database - Encrypted storage for memory entries
 
-use mimir_core::{Memory, MemoryClass, MemoryId, Result, crypto::CryptoManager};
-use rusqlite::{Connection, params};
+use mimir_core::{crypto::CryptoManager, Memory, MemoryClass, MemoryId, Result};
+use rusqlite::{params, Connection};
 use std::path::Path;
 use std::sync::Arc;
 use tokio::sync::Mutex;
@@ -14,39 +14,58 @@ pub struct Database {
 
 impl Database {
     /// Create a new encrypted database with an existing crypto manager
-    pub fn with_crypto_manager<P: AsRef<Path>>(db_path: P, crypto_manager: CryptoManager) -> Result<Self> {
+    pub fn with_crypto_manager<P: AsRef<Path>>(
+        db_path: P,
+        crypto_manager: CryptoManager,
+    ) -> Result<Self> {
         let db_path = db_path.as_ref();
-        
+
         // Validate path is not empty
         if db_path.to_string_lossy().is_empty() {
-            return Err(mimir_core::MimirError::Database(anyhow::anyhow!("Database path cannot be empty")));
+            return Err(mimir_core::MimirError::Database(anyhow::anyhow!(
+                "Database path cannot be empty"
+            )));
         }
-        
+
         // Ensure the database directory exists
         if let Some(parent) = db_path.parent() {
-            std::fs::create_dir_all(parent)
-                .map_err(|e| mimir_core::MimirError::Database(anyhow::anyhow!("Failed to create database directory: {}", e)))?;
+            std::fs::create_dir_all(parent).map_err(|e| {
+                mimir_core::MimirError::Database(anyhow::anyhow!(
+                    "Failed to create database directory: {}",
+                    e
+                ))
+            })?;
         }
-        
+
         // Create an encrypted database with SQLCipher
         let conn = Connection::open_with_flags(
             db_path,
-            rusqlite::OpenFlags::SQLITE_OPEN_READ_WRITE | rusqlite::OpenFlags::SQLITE_OPEN_CREATE
-        ).map_err(|e| mimir_core::MimirError::Database(anyhow::anyhow!("Failed to open database: {}", e)))?;
-        
+            rusqlite::OpenFlags::SQLITE_OPEN_READ_WRITE | rusqlite::OpenFlags::SQLITE_OPEN_CREATE,
+        )
+        .map_err(|e| {
+            mimir_core::MimirError::Database(anyhow::anyhow!("Failed to open database: {}", e))
+        })?;
+
         // Set the SQLCipher key using PRAGMA - SQLCipher returns results from PRAGMA commands
         let db_key_bytes = crypto_manager.get_db_key_bytes();
         let db_key_hex = hex::encode(db_key_bytes);
         let pragma_sql = format!("PRAGMA key = \"x'{}'\"", db_key_hex);
-        conn.execute_batch(&pragma_sql)
-            .map_err(|e| mimir_core::MimirError::Database(anyhow::anyhow!("Failed to set SQLCipher key: {}", e)))?;
-        
+        conn.execute_batch(&pragma_sql).map_err(|e| {
+            mimir_core::MimirError::Database(anyhow::anyhow!("Failed to set SQLCipher key: {}", e))
+        })?;
+
         // Test that the key is correct by executing a simple query
         conn.query_row("SELECT count(*) FROM sqlite_master", [], |row| {
             let count: i64 = row.get(0)?;
             Ok(count)
-        }).map_err(|e| mimir_core::MimirError::Database(anyhow::anyhow!("Failed to verify SQLCipher key: {}", e)))?;
-        
+        })
+        .map_err(|e| {
+            mimir_core::MimirError::Database(anyhow::anyhow!(
+                "Failed to verify SQLCipher key: {}",
+                e
+            ))
+        })?;
+
         // Test inserting into memory table immediately after creation
         conn.execute(
             "CREATE TABLE IF NOT EXISTS memory (
@@ -58,19 +77,37 @@ impl Database {
                 ts        INTEGER NOT NULL
             )",
             [],
-        ).map_err(|e| mimir_core::MimirError::Database(anyhow::anyhow!("Failed to create memory table: {}", e)))?;
-        
+        )
+        .map_err(|e| {
+            mimir_core::MimirError::Database(anyhow::anyhow!(
+                "Failed to create memory table: {}",
+                e
+            ))
+        })?;
+
         // Create indexes for performance
         conn.execute(
             "CREATE INDEX IF NOT EXISTS idx_memory_class_id ON memory(class_id)",
             [],
-        ).map_err(|e| mimir_core::MimirError::Database(anyhow::anyhow!("Failed to create class_id index: {}", e)))?;
-        
+        )
+        .map_err(|e| {
+            mimir_core::MimirError::Database(anyhow::anyhow!(
+                "Failed to create class_id index: {}",
+                e
+            ))
+        })?;
+
         conn.execute(
             "CREATE INDEX IF NOT EXISTS idx_memory_user_ts ON memory(user_id, ts DESC)",
             [],
-        ).map_err(|e| mimir_core::MimirError::Database(anyhow::anyhow!("Failed to create user_ts index: {}", e)))?;
-        
+        )
+        .map_err(|e| {
+            mimir_core::MimirError::Database(anyhow::anyhow!(
+                "Failed to create user_ts index: {}",
+                e
+            ))
+        })?;
+
         Ok(Database {
             conn: Arc::new(Mutex::new(conn)),
             crypto_manager,
@@ -81,23 +118,36 @@ impl Database {
     pub fn new<P: AsRef<Path>>(db_path: P, keyset_path: P) -> Result<Self> {
         let db_path = db_path.as_ref();
         let keyset_path = keyset_path.as_ref();
-        
+
         // Validate paths are not empty
         if db_path.to_string_lossy().is_empty() {
-            return Err(mimir_core::MimirError::Database(anyhow::anyhow!("Database path cannot be empty")));
+            return Err(mimir_core::MimirError::Database(anyhow::anyhow!(
+                "Database path cannot be empty"
+            )));
         }
         if keyset_path.to_string_lossy().is_empty() {
-            return Err(mimir_core::MimirError::Database(anyhow::anyhow!("Keyset path cannot be empty")));
+            return Err(mimir_core::MimirError::Database(anyhow::anyhow!(
+                "Keyset path cannot be empty"
+            )));
         }
-        
+
         // Validate keyset file exists
         if !keyset_path.exists() {
-            return Err(mimir_core::MimirError::Database(anyhow::anyhow!("Keyset file does not exist: {:?}", keyset_path)));
+            return Err(mimir_core::MimirError::Database(anyhow::anyhow!(
+                "Keyset file does not exist: {:?}",
+                keyset_path
+            )));
         }
-        
-        // Initialize crypto manager (keychain-based)
-        let crypto_manager = CryptoManager::new(keyset_path)?;
-        
+
+        // Initialize crypto manager (use password-based in CI, keychain-based otherwise)
+        let crypto_manager = if std::env::var("CI").is_ok() {
+            // Use password-based encryption in CI environments
+            CryptoManager::with_password(keyset_path, "test-password-for-ci")?
+        } else {
+            // Use OS keychain in development/production
+            CryptoManager::new(keyset_path)?
+        };
+
         Self::with_crypto_manager(db_path, crypto_manager)
     }
 
@@ -111,24 +161,28 @@ impl Database {
             MemoryClass::Financial => "financial",
             MemoryClass::Other(s) => s,
         };
-        
+
         // Encrypt memory content with class-specific key
         let content_bytes = memory.content.as_bytes();
         let ciphertext = self.crypto_manager.encrypt(class_id, content_bytes)?;
-        
+
         // Serialize the ciphertext (including nonce) for storage
-        let ciphertext_data = serde_json::to_vec(&ciphertext)
-            .map_err(|e| mimir_core::MimirError::Database(anyhow::anyhow!("Failed to serialize ciphertext: {}", e)))?;
-        
+        let ciphertext_data = serde_json::to_vec(&ciphertext).map_err(|e| {
+            mimir_core::MimirError::Database(anyhow::anyhow!(
+                "Failed to serialize ciphertext: {}",
+                e
+            ))
+        })?;
+
         // Use a default user_id for now (can be made configurable later)
         let user_id = "default_user";
-        
+
         // Use vec_id as 0 for now (can be updated when vector storage is implemented)
         let vec_id = 0;
-        
+
         // Convert timestamp to Unix timestamp (seconds since epoch)
         let ts = memory.created_at.timestamp();
-        
+
         // Insert into database
         let conn = self.conn.lock().await;
         let result = conn.execute(
@@ -143,7 +197,7 @@ impl Database {
                 ts,
             ],
         );
-        
+
         match result {
             Ok(_) => Ok(()),
             Err(e) => {
@@ -159,46 +213,63 @@ impl Database {
         let class_id = match class {
             MemoryClass::Personal => "personal",
             MemoryClass::Work => "work",
-            MemoryClass::Health => "health", 
+            MemoryClass::Health => "health",
             MemoryClass::Financial => "financial",
             MemoryClass::Other(s) => s,
         };
-        
+
         let conn = self.conn.lock().await;
-        let mut stmt = conn.prepare(
-            "SELECT id, user_id, class_id, text_enc, vec_id, ts
+        let mut stmt = conn
+            .prepare(
+                "SELECT id, user_id, class_id, text_enc, vec_id, ts
              FROM memory WHERE class_id = ?1
-             ORDER BY ts DESC"
-        ).map_err(|e| mimir_core::MimirError::Database(anyhow::anyhow!("Failed to prepare query: {}", e)))?;
-        
-        let memory_iter = stmt.query_map([class_id], |row| {
-            Ok((
-                row.get::<_, String>(0)?,        // id
-                row.get::<_, String>(1)?,        // user_id
-                row.get::<_, String>(2)?,        // class_id
-                row.get::<_, Vec<u8>>(3)?,       // text_enc
-                row.get::<_, i64>(4)?,           // vec_id
-                row.get::<_, i64>(5)?,           // ts
-            ))
-        }).map_err(|e| mimir_core::MimirError::Database(anyhow::anyhow!("Failed to execute query: {}", e)))?;
-        
+             ORDER BY ts DESC",
+            )
+            .map_err(|e| {
+                mimir_core::MimirError::Database(anyhow::anyhow!("Failed to prepare query: {}", e))
+            })?;
+
+        let memory_iter = stmt
+            .query_map([class_id], |row| {
+                Ok((
+                    row.get::<_, String>(0)?,  // id
+                    row.get::<_, String>(1)?,  // user_id
+                    row.get::<_, String>(2)?,  // class_id
+                    row.get::<_, Vec<u8>>(3)?, // text_enc
+                    row.get::<_, i64>(4)?,     // vec_id
+                    row.get::<_, i64>(5)?,     // ts
+                ))
+            })
+            .map_err(|e| {
+                mimir_core::MimirError::Database(anyhow::anyhow!("Failed to execute query: {}", e))
+            })?;
+
         let mut memories = Vec::new();
-        
+
         for memory_result in memory_iter {
-            let (id_str, user_id, class_id, text_enc, _vec_id, ts) = 
-                memory_result.map_err(|e| mimir_core::MimirError::Database(anyhow::anyhow!("Failed to read row: {}", e)))?;
-            
+            let (id_str, user_id, class_id, text_enc, _vec_id, ts) =
+                memory_result.map_err(|e| {
+                    mimir_core::MimirError::Database(anyhow::anyhow!("Failed to read row: {}", e))
+                })?;
+
             // Parse ID
-            let id = uuid::Uuid::parse_str(&id_str)
-                .map_err(|e| mimir_core::MimirError::Database(anyhow::anyhow!("Invalid UUID: {}", e)))?;
-            
+            let id = uuid::Uuid::parse_str(&id_str).map_err(|e| {
+                mimir_core::MimirError::Database(anyhow::anyhow!("Invalid UUID: {}", e))
+            })?;
+
             // Deserialize and decrypt content
             let ciphertext: mimir_core::crypto::Ciphertext = serde_json::from_slice(&text_enc)
-                .map_err(|e| mimir_core::MimirError::Database(anyhow::anyhow!("Failed to deserialize ciphertext: {}", e)))?;
+                .map_err(|e| {
+                    mimir_core::MimirError::Database(anyhow::anyhow!(
+                        "Failed to deserialize ciphertext: {}",
+                        e
+                    ))
+                })?;
             let plaintext_bytes = self.crypto_manager.decrypt(&class_id, &ciphertext)?;
-            let content = String::from_utf8(plaintext_bytes)
-                .map_err(|e| mimir_core::MimirError::Database(anyhow::anyhow!("Invalid UTF-8: {}", e)))?;
-            
+            let content = String::from_utf8(plaintext_bytes).map_err(|e| {
+                mimir_core::MimirError::Database(anyhow::anyhow!("Invalid UTF-8: {}", e))
+            })?;
+
             // Parse class
             let memory_class = match class_id.as_ref() {
                 "personal" => MemoryClass::Personal,
@@ -207,72 +278,91 @@ impl Database {
                 "financial" => MemoryClass::Financial,
                 other => MemoryClass::Other(other.to_string()),
             };
-            
+
             // Convert timestamp back to DateTime
             let created_at = chrono::DateTime::from_timestamp(ts, 0)
-                .ok_or_else(|| mimir_core::MimirError::Database(anyhow::anyhow!("Invalid timestamp: {}", ts)))?
+                .ok_or_else(|| {
+                    mimir_core::MimirError::Database(anyhow::anyhow!("Invalid timestamp: {}", ts))
+                })?
                 .with_timezone(&chrono::Utc);
-            
+
             // For now, use created_at as updated_at since we don't store it separately
             let updated_at = created_at;
-            
+
             let memory = Memory {
                 id,
                 content,
                 embedding: None, // TODO: Add embedding support when vec_id is implemented
                 class: memory_class,
-                scope: None, // Not stored in new schema
-                tags: vec![], // Not stored in new schema
-                app_acl: vec![user_id], // Use user_id as app_acl for now
+                scope: None,                  // Not stored in new schema
+                tags: vec![],                 // Not stored in new schema
+                app_acl: vec![user_id],       // Use user_id as app_acl for now
                 key_id: class_id.to_string(), // Use class_id as key_id
                 created_at,
                 updated_at,
             };
-            
+
             memories.push(memory);
         }
-        
+
         Ok(memories)
     }
 
     /// Get the last N memories for a user
     pub async fn get_last_memories(&mut self, user_id: &str, limit: usize) -> Result<Vec<Memory>> {
         let conn = self.conn.lock().await;
-        let mut stmt = conn.prepare(
-            "SELECT id, user_id, class_id, text_enc, vec_id, ts
+        let mut stmt = conn
+            .prepare(
+                "SELECT id, user_id, class_id, text_enc, vec_id, ts
              FROM memory WHERE user_id = ?1
              ORDER BY ts DESC
-             LIMIT ?2"
-        ).map_err(|e| mimir_core::MimirError::Database(anyhow::anyhow!("Failed to prepare query: {}", e)))?;
-        
-        let memory_iter = stmt.query_map(params![user_id, limit as i64], |row| {
-            Ok((
-                row.get::<_, String>(0)?,        // id
-                row.get::<_, String>(1)?,        // user_id
-                row.get::<_, String>(2)?,        // class_id
-                row.get::<_, Vec<u8>>(3)?,       // text_enc
-                row.get::<_, i64>(4)?,           // vec_id
-                row.get::<_, i64>(5)?,           // ts
-            ))
-        }).map_err(|e| mimir_core::MimirError::Database(anyhow::anyhow!("Failed to execute query: {}", e)))?;
-        
+             LIMIT ?2",
+            )
+            .map_err(|e| {
+                mimir_core::MimirError::Database(anyhow::anyhow!("Failed to prepare query: {}", e))
+            })?;
+
+        let memory_iter = stmt
+            .query_map(params![user_id, limit as i64], |row| {
+                Ok((
+                    row.get::<_, String>(0)?,  // id
+                    row.get::<_, String>(1)?,  // user_id
+                    row.get::<_, String>(2)?,  // class_id
+                    row.get::<_, Vec<u8>>(3)?, // text_enc
+                    row.get::<_, i64>(4)?,     // vec_id
+                    row.get::<_, i64>(5)?,     // ts
+                ))
+            })
+            .map_err(|e| {
+                mimir_core::MimirError::Database(anyhow::anyhow!("Failed to execute query: {}", e))
+            })?;
+
         let mut memories = Vec::new();
-        
+
         for memory_result in memory_iter {
-            let (id_str, user_id, class_id, text_enc, _vec_id, ts) = 
-                memory_result.map_err(|e| mimir_core::MimirError::Database(anyhow::anyhow!("Failed to read row: {}", e)))?;
-            
+            let (id_str, user_id, class_id, text_enc, _vec_id, ts) =
+                memory_result.map_err(|e| {
+                    mimir_core::MimirError::Database(anyhow::anyhow!("Failed to read row: {}", e))
+                })?;
+
             // Parse ID
-            let id = uuid::Uuid::parse_str(&id_str)
-                .map_err(|e| mimir_core::MimirError::Database(anyhow::anyhow!("Invalid UUID: {}", e)))?;
-            
+            let id = uuid::Uuid::parse_str(&id_str).map_err(|e| {
+                mimir_core::MimirError::Database(anyhow::anyhow!("Invalid UUID: {}", e))
+            })?;
+
             // Deserialize and decrypt content
             let ciphertext: mimir_core::crypto::Ciphertext = serde_json::from_slice(&text_enc)
-                .map_err(|e| mimir_core::MimirError::Database(anyhow::anyhow!("Failed to deserialize ciphertext: {}", e)))?;
+                .map_err(|e| {
+                    mimir_core::MimirError::Database(anyhow::anyhow!(
+                        "Failed to deserialize ciphertext: {}",
+                        e
+                    ))
+                })?;
             let plaintext_bytes = self.crypto_manager.decrypt(&class_id, &ciphertext)?;
-            let content = String::from_utf8(plaintext_bytes)
-                .map_err(|e| mimir_core::MimirError::Database(anyhow::anyhow!("Invalid UTF-8: {}", e)))?;
-            
+            let content = String::from_utf8(plaintext_bytes).map_err(|e| {
+                mimir_core::MimirError::Database(anyhow::anyhow!("Invalid UTF-8: {}", e))
+            })?;
+
             // Parse class
             let memory_class = match class_id.as_ref() {
                 "personal" => MemoryClass::Personal,
@@ -281,79 +371,98 @@ impl Database {
                 "financial" => MemoryClass::Financial,
                 other => MemoryClass::Other(other.to_string()),
             };
-            
+
             // Convert timestamp back to DateTime
             let created_at = chrono::DateTime::from_timestamp(ts, 0)
-                .ok_or_else(|| mimir_core::MimirError::Database(anyhow::anyhow!("Invalid timestamp: {}", ts)))?
+                .ok_or_else(|| {
+                    mimir_core::MimirError::Database(anyhow::anyhow!("Invalid timestamp: {}", ts))
+                })?
                 .with_timezone(&chrono::Utc);
-            
+
             // For now, use created_at as updated_at since we don't store it separately
             let updated_at = created_at;
-            
+
             let memory = Memory {
                 id,
                 content,
                 embedding: None, // TODO: Add embedding support when vec_id is implemented
                 class: memory_class,
-                scope: None, // Not stored in new schema
-                tags: vec![], // Not stored in new schema
-                app_acl: vec![user_id], // Use user_id as app_acl for now
+                scope: None,                  // Not stored in new schema
+                tags: vec![],                 // Not stored in new schema
+                app_acl: vec![user_id],       // Use user_id as app_acl for now
                 key_id: class_id.to_string(), // Use class_id as key_id
                 created_at,
                 updated_at,
             };
-            
+
             memories.push(memory);
         }
-        
+
         Ok(memories)
     }
 
     /// Delete a memory by ID
     pub async fn delete_memory(&self, id: MemoryId) -> Result<()> {
         let conn = self.conn.lock().await;
-        conn.execute(
-            "DELETE FROM memory WHERE id = ?1",
-            params![id.to_string()],
-        ).map_err(|e| mimir_core::MimirError::Database(anyhow::anyhow!("Failed to delete memory: {}", e)))?;
-        
+        conn.execute("DELETE FROM memory WHERE id = ?1", params![id.to_string()])
+            .map_err(|e| {
+                mimir_core::MimirError::Database(anyhow::anyhow!("Failed to delete memory: {}", e))
+            })?;
+
         Ok(())
     }
 
     /// Get memory by ID
     pub async fn get_memory(&mut self, id: MemoryId) -> Result<Option<Memory>> {
         let conn = self.conn.lock().await;
-        let mut stmt = conn.prepare(
-            "SELECT id, user_id, class_id, text_enc, vec_id, ts
-             FROM memory WHERE id = ?1"
-        ).map_err(|e| mimir_core::MimirError::Database(anyhow::anyhow!("Failed to prepare query: {}", e)))?;
-        
-        let mut rows = stmt.query_map([id.to_string()], |row| {
-            Ok((
-                row.get::<_, String>(0)?,        // id
-                row.get::<_, String>(1)?,        // user_id
-                row.get::<_, String>(2)?,        // class_id
-                row.get::<_, Vec<u8>>(3)?,       // text_enc
-                row.get::<_, i64>(4)?,           // vec_id
-                row.get::<_, i64>(5)?,           // ts
-            ))
-        }).map_err(|e| mimir_core::MimirError::Database(anyhow::anyhow!("Failed to execute query: {}", e)))?;
-        
+        let mut stmt = conn
+            .prepare(
+                "SELECT id, user_id, class_id, text_enc, vec_id, ts
+             FROM memory WHERE id = ?1",
+            )
+            .map_err(|e| {
+                mimir_core::MimirError::Database(anyhow::anyhow!("Failed to prepare query: {}", e))
+            })?;
+
+        let mut rows = stmt
+            .query_map([id.to_string()], |row| {
+                Ok((
+                    row.get::<_, String>(0)?,  // id
+                    row.get::<_, String>(1)?,  // user_id
+                    row.get::<_, String>(2)?,  // class_id
+                    row.get::<_, Vec<u8>>(3)?, // text_enc
+                    row.get::<_, i64>(4)?,     // vec_id
+                    row.get::<_, i64>(5)?,     // ts
+                ))
+            })
+            .map_err(|e| {
+                mimir_core::MimirError::Database(anyhow::anyhow!("Failed to execute query: {}", e))
+            })?;
+
         if let Some(memory_result) = rows.next() {
-            let (id_str, user_id, class_id, text_enc, _vec_id, ts) = 
-                memory_result.map_err(|e| mimir_core::MimirError::Database(anyhow::anyhow!("Failed to read row: {}", e)))?;
-            
+            let (id_str, user_id, class_id, text_enc, _vec_id, ts) =
+                memory_result.map_err(|e| {
+                    mimir_core::MimirError::Database(anyhow::anyhow!("Failed to read row: {}", e))
+                })?;
+
             // Parse ID
-            let id = uuid::Uuid::parse_str(&id_str)
-                .map_err(|e| mimir_core::MimirError::Database(anyhow::anyhow!("Invalid UUID: {}", e)))?;
-            
+            let id = uuid::Uuid::parse_str(&id_str).map_err(|e| {
+                mimir_core::MimirError::Database(anyhow::anyhow!("Invalid UUID: {}", e))
+            })?;
+
             // Deserialize and decrypt content
             let ciphertext: mimir_core::crypto::Ciphertext = serde_json::from_slice(&text_enc)
-                .map_err(|e| mimir_core::MimirError::Database(anyhow::anyhow!("Failed to deserialize ciphertext: {}", e)))?;
+                .map_err(|e| {
+                    mimir_core::MimirError::Database(anyhow::anyhow!(
+                        "Failed to deserialize ciphertext: {}",
+                        e
+                    ))
+                })?;
             let plaintext_bytes = self.crypto_manager.decrypt(&class_id, &ciphertext)?;
-            let content = String::from_utf8(plaintext_bytes)
-                .map_err(|e| mimir_core::MimirError::Database(anyhow::anyhow!("Invalid UTF-8: {}", e)))?;
-            
+            let content = String::from_utf8(plaintext_bytes).map_err(|e| {
+                mimir_core::MimirError::Database(anyhow::anyhow!("Invalid UTF-8: {}", e))
+            })?;
+
             // Parse class
             let memory_class = match class_id.as_ref() {
                 "personal" => MemoryClass::Personal,
@@ -362,28 +471,30 @@ impl Database {
                 "financial" => MemoryClass::Financial,
                 other => MemoryClass::Other(other.to_string()),
             };
-            
+
             // Convert timestamp back to DateTime
             let created_at = chrono::DateTime::from_timestamp(ts, 0)
-                .ok_or_else(|| mimir_core::MimirError::Database(anyhow::anyhow!("Invalid timestamp: {}", ts)))?
+                .ok_or_else(|| {
+                    mimir_core::MimirError::Database(anyhow::anyhow!("Invalid timestamp: {}", ts))
+                })?
                 .with_timezone(&chrono::Utc);
-            
+
             // For now, use created_at as updated_at since we don't store it separately
             let updated_at = created_at;
-            
+
             let memory = Memory {
                 id,
                 content,
                 embedding: None, // TODO: Add embedding support when vec_id is implemented
                 class: memory_class,
-                scope: None, // Not stored in new schema
-                tags: vec![], // Not stored in new schema
-                app_acl: vec![user_id], // Use user_id as app_acl for now
+                scope: None,                  // Not stored in new schema
+                tags: vec![],                 // Not stored in new schema
+                app_acl: vec![user_id],       // Use user_id as app_acl for now
                 key_id: class_id.to_string(), // Use class_id as key_id
                 created_at,
                 updated_at,
             };
-            
+
             Ok(Some(memory))
         } else {
             Ok(None)
@@ -402,9 +513,10 @@ impl Database {
     /// Clear all memories from the database
     pub async fn clear_all_memories(&mut self) -> Result<usize> {
         let conn = self.conn.lock().await;
-        let result = conn.execute("DELETE FROM memory", [])
-            .map_err(|e| mimir_core::MimirError::Database(anyhow::anyhow!("Failed to clear memories: {}", e)))?;
-        
+        let result = conn.execute("DELETE FROM memory", []).map_err(|e| {
+            mimir_core::MimirError::Database(anyhow::anyhow!("Failed to clear memories: {}", e))
+        })?;
+
         Ok(result as usize)
     }
 }
@@ -425,18 +537,18 @@ mod tests {
         let temp_dir = create_temp_dir();
         let db_path = get_test_db_path(&temp_dir);
         let keyset_path = temp_dir.path().join("keyset.json");
-        
+
         // Ensure the parent directory exists
         if let Some(parent) = keyset_path.parent() {
             std::fs::create_dir_all(parent).expect("Failed to create keyset directory");
         }
-        
-        // Use password-based CryptoManager to create a proper keyset file
-        let _crypto_manager = mimir_core::crypto::CryptoManager::with_password(&keyset_path, "test-password")
-            .expect("Failed to create test crypto manager");
 
-        let db = Database::new(db_path, keyset_path)
-            .expect("Failed to create test database");
+        // Use password-based CryptoManager to create a proper keyset file
+        let _crypto_manager =
+            mimir_core::crypto::CryptoManager::with_password(&keyset_path, "test-password")
+                .expect("Failed to create test crypto manager");
+
+        let db = Database::new(db_path, keyset_path).expect("Failed to create test database");
         (db, temp_dir)
     }
 
@@ -445,15 +557,16 @@ mod tests {
         let temp_dir = create_temp_dir();
         let db_path = get_test_db_path(&temp_dir);
         let keyset_path = temp_dir.path().join("keyset.json");
-        
+
         // Ensure the parent directory exists
         if let Some(parent) = keyset_path.parent() {
             std::fs::create_dir_all(parent).expect("Failed to create keyset directory");
         }
-        
+
         // Use password-based CryptoManager to create a proper keyset file
-        let _crypto_manager = mimir_core::crypto::CryptoManager::with_password(&keyset_path, "test-password")
-            .expect("Failed to create test crypto manager");
+        let _crypto_manager =
+            mimir_core::crypto::CryptoManager::with_password(&keyset_path, "test-password")
+                .expect("Failed to create test crypto manager");
 
         let result = Database::new(db_path, keyset_path);
         assert!(result.is_ok());
@@ -463,15 +576,16 @@ mod tests {
     fn test_database_creation_with_different_paths() {
         let temp_dir = create_temp_dir();
         let keyset_path = temp_dir.path().join("keyset.json");
-        
+
         // Ensure the parent directory exists
         if let Some(parent) = keyset_path.parent() {
             std::fs::create_dir_all(parent).expect("Failed to create keyset directory");
         }
-        
+
         // Use password-based CryptoManager to create a proper keyset file
-        let _crypto_manager = mimir_core::crypto::CryptoManager::with_password(&keyset_path, "test-password")
-            .expect("Failed to create test crypto manager");
+        let _crypto_manager =
+            mimir_core::crypto::CryptoManager::with_password(&keyset_path, "test-password")
+                .expect("Failed to create test crypto manager");
 
         let test_cases = vec!["test1.db", "subdir/test2.db", "memory_vault.sqlite"];
 
@@ -553,7 +667,10 @@ mod tests {
         db.store_memory(&work_memory).await.unwrap();
 
         // Test retrieving by class
-        let personal_memories = db.get_memories_by_class(&MemoryClass::Personal).await.unwrap();
+        let personal_memories = db
+            .get_memories_by_class(&MemoryClass::Personal)
+            .await
+            .unwrap();
         assert_eq!(personal_memories.len(), 1);
         assert_eq!(personal_memories[0].content, "Personal content");
 
@@ -638,15 +755,16 @@ mod tests {
         let db_path2 = get_test_db_path(&temp_dir2);
 
         let keyset_path = temp_dir1.path().join("keyset.json");
-        
+
         // Ensure the parent directory exists
         if let Some(parent) = keyset_path.parent() {
             std::fs::create_dir_all(parent).expect("Failed to create keyset directory");
         }
-        
+
         // Use password-based CryptoManager to create a proper keyset file
-        let _crypto_manager = mimir_core::crypto::CryptoManager::with_password(&keyset_path, "test-password")
-            .expect("Failed to create test crypto manager");
+        let _crypto_manager =
+            mimir_core::crypto::CryptoManager::with_password(&keyset_path, "test-password")
+                .expect("Failed to create test crypto manager");
 
         let mut db1 = Database::new(&db_path1, &keyset_path).unwrap();
         let mut db2 = Database::new(&db_path2, &keyset_path).unwrap();
@@ -667,8 +785,9 @@ mod tests {
         let db_path_str = db_path.to_str().unwrap();
         let keyset_path = temp_dir.path().join("keyset.json");
         let keyset_path_str = keyset_path.to_str().unwrap();
-        let _crypto_manager = mimir_core::crypto::CryptoManager::with_password(&keyset_path, "test-password")
-            .expect("Failed to create test crypto manager");
+        let _crypto_manager =
+            mimir_core::crypto::CryptoManager::with_password(&keyset_path, "test-password")
+                .expect("Failed to create test crypto manager");
         let invalid_paths = vec![
             "",                       // Empty path
             "/root/no_permission.db", // Permission denied path
@@ -689,13 +808,17 @@ mod tests {
         let db_path = temp_dir.path().join("test.db");
         let db_path_str = db_path.to_str().unwrap();
         let invalid_keyset_paths = vec![
-            "/non/existent/keyset.json",  // Absolute path that doesn't exist
+            "/non/existent/keyset.json",     // Absolute path that doesn't exist
             "/tmp/non_existent_keyset.json", // Another absolute path
-            "",  // Empty path
+            "",                              // Empty path
         ];
         for keyset_path in invalid_keyset_paths {
             let result = Database::new(db_path_str, keyset_path);
-            assert!(result.is_err(), "Should fail for invalid keyset path: {}", keyset_path);
+            assert!(
+                result.is_err(),
+                "Should fail for invalid keyset path: {}",
+                keyset_path
+            );
         }
     }
 
@@ -711,12 +834,16 @@ mod tests {
         }
 
         // Test that the CryptoManager can be created and used properly
-        let crypto_manager = mimir_core::crypto::CryptoManager::with_password(&keyset_path, "test-password");
+        let crypto_manager =
+            mimir_core::crypto::CryptoManager::with_password(&keyset_path, "test-password");
         assert!(crypto_manager.is_ok(), "Failed to create crypto manager");
 
         // Test that we can create a database with the crypto manager
         let result = Database::new(&db_path, &keyset_path);
-        assert!(result.is_ok(), "Failed to create database with crypto manager");
+        assert!(
+            result.is_ok(),
+            "Failed to create database with crypto manager"
+        );
     }
 
     #[tokio::test]

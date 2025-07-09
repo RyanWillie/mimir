@@ -1,11 +1,11 @@
 //! Integrated storage manager for coordinating database and vector store operations
 
-use mimir_core::{Memory, MemoryClass, MemoryId, Result, crypto::CryptoManager};
+use mimir_core::{crypto::CryptoManager, Memory, MemoryClass, MemoryId, Result};
 use mimir_db::Database;
 use mimir_vector::ThreadSafeVectorStore;
 use std::sync::Arc;
 use tokio::sync::Mutex;
-use tracing::{info, warn, error};
+use tracing::{error, info, warn};
 use uuid::Uuid;
 
 /// Integrated storage manager that coordinates database and vector store operations
@@ -48,7 +48,7 @@ impl IntegratedStorage {
     /// Add a memory to both database and vector store
     pub async fn add_memory(&self, memory: Memory) -> Result<MemoryAddResult> {
         info!("Adding memory to integrated storage: {}", memory.id);
-        
+
         let mut result = MemoryAddResult {
             memory_id: memory.id,
             vector_stored: false,
@@ -92,14 +92,14 @@ impl IntegratedStorage {
     /// Add multiple memories in batch
     pub async fn add_memories(&self, memories: Vec<Memory>) -> Result<Vec<MemoryAddResult>> {
         info!("Adding {} memories to integrated storage", memories.len());
-        
+
         let mut results = Vec::new();
-        
+
         for memory in memories {
             let result = self.add_memory(memory).await?;
             results.push(result);
         }
-        
+
         info!("Successfully added {} memories", results.len());
         Ok(results)
     }
@@ -107,22 +107,25 @@ impl IntegratedStorage {
     /// Search memories using vector similarity
     pub async fn search_memories(&self, query: &str, k: usize) -> Result<Vec<MemorySearchResult>> {
         info!("Searching memories with query: '{}' (k={})", query, k);
-        
+
         // Step 1: Search vector store
-        let vector_results = self.vector_store.search_text(query, k).await
+        let vector_results = self
+            .vector_store
+            .search_text(query, k)
+            .await
             .map_err(|e| mimir_core::MimirError::VectorStore(e.to_string()))?;
-        
+
         info!("Found {} vector results", vector_results.len());
-        
+
         // Step 2: Retrieve full memories from database
         let mut search_results = Vec::new();
-        
+
         for result in vector_results {
             let memory_result = {
                 let mut db = self.database.lock().await;
                 db.get_memory(result.id).await
             };
-            
+
             match memory_result {
                 Ok(Some(memory)) => {
                     let distance = 1.0 - result.similarity; // Convert similarity to distance
@@ -133,17 +136,27 @@ impl IntegratedStorage {
                     });
                 }
                 Ok(None) => {
-                    warn!("Memory {} found in vector store but not in database", result.id);
+                    warn!(
+                        "Memory {} found in vector store but not in database",
+                        result.id
+                    );
                 }
                 Err(e) => {
-                    error!("Failed to retrieve memory {} from database: {}", result.id, e);
+                    error!(
+                        "Failed to retrieve memory {} from database: {}",
+                        result.id, e
+                    );
                 }
             }
         }
-        
+
         // Sort by similarity (descending)
-        search_results.sort_by(|a, b| b.similarity.partial_cmp(&a.similarity).unwrap_or(std::cmp::Ordering::Equal));
-        
+        search_results.sort_by(|a, b| {
+            b.similarity
+                .partial_cmp(&a.similarity)
+                .unwrap_or(std::cmp::Ordering::Equal)
+        });
+
         info!("Returning {} search results", search_results.len());
         Ok(search_results)
     }
@@ -157,16 +170,16 @@ impl IntegratedStorage {
     /// Delete memory from both storage systems
     pub async fn delete_memory(&self, memory_id: MemoryId) -> Result<bool> {
         info!("Deleting memory: {}", memory_id);
-        
+
         let mut deleted = false;
-        
+
         // Delete from database first
         {
             let mut db = self.database.lock().await;
             db.delete_memory(memory_id).await?;
             deleted = true;
         }
-        
+
         // Delete from vector store
         let vector_result = self.vector_store.remove_vector(memory_id).await;
         match vector_result {
@@ -178,7 +191,7 @@ impl IntegratedStorage {
                 // Don't fail if vector store deletion fails
             }
         }
-        
+
         Ok(deleted)
     }
 
@@ -197,7 +210,7 @@ impl IntegratedStorage {
     /// Update an existing memory in both database and vector store
     pub async fn update_memory(&self, memory: Memory) -> Result<MemoryAddResult> {
         info!("Updating memory in integrated storage: {}", memory.id);
-        
+
         let mut result = MemoryAddResult {
             memory_id: memory.id,
             vector_stored: false,
@@ -241,7 +254,7 @@ impl IntegratedStorage {
     /// Clear all memories from both storage systems
     pub async fn clear_vault(&self) -> Result<usize> {
         info!("Clearing all memories from vault");
-        
+
         // Step 1: Clear database
         let db_count = {
             let mut db = self.database.lock().await;
@@ -273,10 +286,10 @@ impl IntegratedStorage {
             // For now, we'll estimate based on vector store count
             self.vector_store.len().await
         };
-        
+
         let vector_count = self.vector_store.len().await;
         let vector_stats = self.vector_store.get_memory_stats();
-        
+
         Ok(StorageStats {
             database_memories: db_count,
             vector_memories: vector_count,
@@ -290,14 +303,16 @@ impl IntegratedStorage {
         // Check if vector store has embedder
         if !self.vector_store.has_embedder().await {
             return Err(mimir_core::MimirError::VectorStore(
-                "Vector store does not have an embedder configured".to_string()
+                "Vector store does not have an embedder configured".to_string(),
             ));
         }
-        
+
         // Add text to vector store (this will generate embedding internally)
-        self.vector_store.add_text(memory.id, &memory.content).await
+        self.vector_store
+            .add_text(memory.id, &memory.content)
+            .await
             .map_err(|e| mimir_core::MimirError::VectorStore(e.to_string()))?;
-        
+
         Ok(())
     }
 
@@ -306,17 +321,19 @@ impl IntegratedStorage {
         // Check if vector store has embedder
         if !self.vector_store.has_embedder().await {
             return Err(mimir_core::MimirError::VectorStore(
-                "Vector store does not have an embedder configured".to_string()
+                "Vector store does not have an embedder configured".to_string(),
             ));
         }
-        
+
         // Remove old vector first
         let _ = self.vector_store.remove_vector(memory.id).await;
-        
+
         // Add new text to vector store (this will generate embedding internally)
-        self.vector_store.add_text(memory.id, &memory.content).await
+        self.vector_store
+            .add_text(memory.id, &memory.content)
+            .await
             .map_err(|e| mimir_core::MimirError::VectorStore(e.to_string()))?;
-        
+
         Ok(())
     }
 
@@ -329,7 +346,7 @@ impl IntegratedStorage {
         info!("Saving vector store to disk");
         let vector_count = self.vector_store.len().await;
         info!("Vector store has {} vectors to save", vector_count);
-        
+
         let result = self.vector_store.save(None).await;
         match result {
             Ok(_) => {
@@ -338,7 +355,10 @@ impl IntegratedStorage {
             }
             Err(e) => {
                 error!("Failed to save vector store: {}", e);
-                Err(mimir_core::MimirError::VectorStore(format!("Failed to save vector store: {}", e)))
+                Err(mimir_core::MimirError::VectorStore(format!(
+                    "Failed to save vector store: {}",
+                    e
+                )))
             }
         }
     }
@@ -358,47 +378,49 @@ mod tests {
     use super::*;
     use mimir_core::test_utils::MemoryBuilder;
     use mimir_core::MemoryClass;
-    use tempfile::TempDir;
     use std::path::PathBuf;
+    use tempfile::TempDir;
 
     async fn create_test_storage() -> (IntegratedStorage, TempDir) {
         let temp_dir = TempDir::new().unwrap();
         let db_path = temp_dir.path().join("test.db");
         let keyset_path = temp_dir.path().join("keyset.json");
-        
+
         // Create crypto manager for database
-        let db_crypto_manager = mimir_core::crypto::CryptoManager::with_password(&keyset_path, "test-password")
-            .expect("Failed to create test crypto manager");
-        
+        let db_crypto_manager =
+            mimir_core::crypto::CryptoManager::with_password(&keyset_path, "test-password")
+                .expect("Failed to create test crypto manager");
+
         // Create crypto manager for integrated storage
-        let storage_crypto_manager = mimir_core::crypto::CryptoManager::with_password(&keyset_path, "test-password")
-            .expect("Failed to create test crypto manager");
-        
+        let storage_crypto_manager =
+            mimir_core::crypto::CryptoManager::with_password(&keyset_path, "test-password")
+                .expect("Failed to create test crypto manager");
+
         // Create database
         let database = Database::with_crypto_manager(&db_path, db_crypto_manager)
             .expect("Failed to create test database");
-        
+
         // Create vector store (without embedder for testing)
         let vector_store = ThreadSafeVectorStore::new(temp_dir.path(), 128, None, None)
             .expect("Failed to create test vector store");
-        
+
         let storage = IntegratedStorage::new(database, vector_store, storage_crypto_manager)
             .await
             .expect("Failed to create integrated storage");
-        
+
         (storage, temp_dir)
     }
 
     #[tokio::test]
     async fn test_add_memory() {
         let (storage, _temp_dir) = create_test_storage().await;
-        
+
         let memory = MemoryBuilder::new()
             .with_content("Test memory content")
             .with_class(MemoryClass::Personal)
             .build();
         let result = storage.add_memory(memory.clone()).await.unwrap();
-        
+
         assert_eq!(result.memory_id, memory.id);
         assert!(result.database_stored);
         // Vector store won't work without embedder, so this should be false
@@ -408,13 +430,13 @@ mod tests {
     #[tokio::test]
     async fn test_get_memory() {
         let (storage, _temp_dir) = create_test_storage().await;
-        
+
         let memory = MemoryBuilder::new()
             .with_content("Test memory content")
             .with_class(MemoryClass::Personal)
             .build();
         storage.add_memory(memory.clone()).await.unwrap();
-        
+
         let retrieved = storage.get_memory(memory.id).await.unwrap();
         assert!(retrieved.is_some());
         assert_eq!(retrieved.unwrap().id, memory.id);
@@ -423,16 +445,16 @@ mod tests {
     #[tokio::test]
     async fn test_delete_memory() {
         let (storage, _temp_dir) = create_test_storage().await;
-        
+
         let memory = MemoryBuilder::new()
             .with_content("Test memory content")
             .with_class(MemoryClass::Personal)
             .build();
         storage.add_memory(memory.clone()).await.unwrap();
-        
+
         let deleted = storage.delete_memory(memory.id).await.unwrap();
         assert!(deleted);
-        
+
         let retrieved = storage.get_memory(memory.id).await.unwrap();
         assert!(retrieved.is_none());
     }
@@ -440,7 +462,7 @@ mod tests {
     #[tokio::test]
     async fn test_get_memories_by_class() {
         let (storage, _temp_dir) = create_test_storage().await;
-        
+
         let memory1 = MemoryBuilder::new()
             .with_content("Test personal memory")
             .with_class(MemoryClass::Personal)
@@ -449,15 +471,21 @@ mod tests {
             .with_content("Test work memory")
             .with_class(MemoryClass::Work)
             .build();
-        
+
         storage.add_memory(memory1.clone()).await.unwrap();
         storage.add_memory(memory2.clone()).await.unwrap();
-        
-        let personal_memories = storage.get_memories_by_class(&MemoryClass::Personal).await.unwrap();
+
+        let personal_memories = storage
+            .get_memories_by_class(&MemoryClass::Personal)
+            .await
+            .unwrap();
         assert_eq!(personal_memories.len(), 1);
         assert_eq!(personal_memories[0].id, memory1.id);
-        
-        let work_memories = storage.get_memories_by_class(&MemoryClass::Work).await.unwrap();
+
+        let work_memories = storage
+            .get_memories_by_class(&MemoryClass::Work)
+            .await
+            .unwrap();
         assert_eq!(work_memories.len(), 1);
         assert_eq!(work_memories[0].id, memory2.id);
     }
@@ -465,9 +493,9 @@ mod tests {
     #[tokio::test]
     async fn test_get_stats() {
         let (storage, _temp_dir) = create_test_storage().await;
-        
+
         let stats = storage.get_stats().await.unwrap();
         assert_eq!(stats.database_memories, 0);
         assert_eq!(stats.vector_memories, 0);
     }
-} 
+}

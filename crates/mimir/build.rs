@@ -1,8 +1,7 @@
 use std::env;
+use std::fs;
 use std::path::Path;
 use std::process::{Command, Stdio};
-use std::fs;
-
 
 // SHA-256 checksums for the model files
 // TODO: Replace with actual checksums after first download
@@ -39,26 +38,29 @@ fn main() {
     // Create assets directory
     if !assets_path.exists() {
         fs::create_dir_all(assets_path).expect("Failed to create assets directory");
-        println!("cargo:warning=Created assets directory: {}", assets_path.display());
+        println!(
+            "cargo:warning=Created assets directory: {}",
+            assets_path.display()
+        );
     }
 
     // Download model files
     download_file(
         &format!("{}/onnx/model.onnx", MODEL_BASE_URL),
         &model_path,
-        "model.onnx"
+        "model.onnx",
     );
 
     download_file(
         &format!("{}/tokenizer.json", MODEL_BASE_URL),
         &tokenizer_path,
-        "tokenizer.json"
+        "tokenizer.json",
     );
 
     download_file(
         &format!("{}/vocab.txt", MODEL_BASE_URL),
         &vocab_path,
-        "vocab.txt"
+        "vocab.txt",
     );
 
     // Quantize model to int8 if needed
@@ -90,7 +92,8 @@ fn download_file(url: &str, output_path: &Path, filename: &str) {
                 // PowerShell fallback
                 let ps_script = format!(
                     "Invoke-WebRequest -Uri '{}' -OutFile '{}'",
-                    url, output_path.to_str().unwrap()
+                    url,
+                    output_path.to_str().unwrap()
                 );
                 Command::new("powershell")
                     .args(["-Command", &ps_script])
@@ -138,24 +141,32 @@ fn quantize_model(model_path: &Path) {
     }
 
     let output_path = model_path.parent().unwrap().join("model-int8.onnx");
-    
+
     let status = Command::new("optimum-cli")
         .args([
-            "export", "onnx",
-            "--quantization", "int8",
-            "--model", model_path.to_str().unwrap(),
-            "--output", output_path.to_str().unwrap()
+            "export",
+            "onnx",
+            "--quantization",
+            "int8",
+            "--model",
+            model_path.to_str().unwrap(),
+            "--output",
+            output_path.to_str().unwrap(),
         ])
         .status();
 
     match status {
         Ok(exit_status) if exit_status.success() => {
             // Replace original model with quantized version
-            fs::rename(&output_path, model_path).expect("Failed to replace model with quantized version");
+            fs::rename(&output_path, model_path)
+                .expect("Failed to replace model with quantized version");
             println!("cargo:warning=Model quantized successfully");
         }
         Ok(exit_status) => {
-            println!("cargo:warning=Quantization failed: exit code {}", exit_status);
+            println!(
+                "cargo:warning=Quantization failed: exit code {}",
+                exit_status
+            );
         }
         Err(e) => {
             println!("cargo:warning=Failed to run quantization: {}", e);
@@ -182,27 +193,36 @@ fn verify_checksums(model_path: &Path, tokenizer_path: &Path, vocab_path: &Path)
 
     // Verify checksums
     if model_sha != SHA_ONNX {
-        panic!("Model checksum mismatch: expected {}, got {}", SHA_ONNX, model_sha);
+        panic!(
+            "Model checksum mismatch: expected {}, got {}",
+            SHA_ONNX, model_sha
+        );
     }
 
     if tokenizer_sha != SHA_TOKENIZER {
-        panic!("Tokenizer checksum mismatch: expected {}, got {}", SHA_TOKENIZER, tokenizer_sha);
+        panic!(
+            "Tokenizer checksum mismatch: expected {}, got {}",
+            SHA_TOKENIZER, tokenizer_sha
+        );
     }
 
     if vocab_sha != SHA_VOCAB {
-        panic!("Vocab checksum mismatch: expected {}, got {}", SHA_VOCAB, vocab_sha);
+        panic!(
+            "Vocab checksum mismatch: expected {}, got {}",
+            SHA_VOCAB, vocab_sha
+        );
     }
 
     println!("cargo:warning=All checksums verified successfully");
 }
 
 fn calculate_sha256(file_path: &Path) -> String {
-    use sha2::{Sha256, Digest};
-    
+    use sha2::{Digest, Sha256};
+
     let content = fs::read(file_path).expect("Failed to read file for checksum calculation");
     let mut hasher = Sha256::new();
     hasher.update(&content);
     let result = hasher.finalize();
-    
+
     hex::encode(result)
-} 
+}

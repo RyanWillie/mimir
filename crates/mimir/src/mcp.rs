@@ -530,7 +530,7 @@ mod tests {
             .description
             .as_ref()
             .unwrap()
-            .contains("Add a new memory"));
+            .contains("Pass all useful information about a user"));
     }
 
     #[tokio::test]

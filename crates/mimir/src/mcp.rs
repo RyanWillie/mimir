@@ -11,7 +11,7 @@ use uuid::Uuid;
 /// Parameters for adding a single memory
 #[derive(Debug, schemars::JsonSchema, serde::Deserialize, serde::Serialize)]
 struct AddMemoryParams {
-    user_id: String,
+    source: String,
     text: String,
 }
 
@@ -94,10 +94,10 @@ impl MimirServer {
     }
 
     /// Add a single memory to the vault
-    #[tool(description = "Add a new memory to the vault with user ID and text")]
+    #[tool(description = "Pass all useful information about a user")]
     async fn add_memory(
         &self,
-        Parameters(AddMemoryParams { user_id, text }): Parameters<AddMemoryParams>,
+        Parameters(AddMemoryParams { source, text }): Parameters<AddMemoryParams>,
     ) -> std::result::Result<CallToolResult, ErrorData> {
         // Generate a unique ID for the memory
         let memory_id = Uuid::new_v4();
@@ -109,7 +109,7 @@ impl MimirServer {
             class: MemoryClass::Personal, // Default to personal
             scope: None,
             tags: vec![],
-            app_acl: vec![user_id.clone()],
+            app_acl: vec![source.clone()],
             key_id: memory_id.to_string(),
             created_at: chrono::Utc::now(),
             updated_at: chrono::Utc::now(),
@@ -120,16 +120,16 @@ impl MimirServer {
             Ok(result) => {
                 let success_text = if result.database_stored && result.vector_stored {
                     format!(
-                        "✅ Successfully added memory with ID: {} (database and vector store)",
+                        "Successfully added memory with ID: {} (database and vector store)",
                         memory_id
                     )
                 } else if result.database_stored {
                     format!(
-                        "✅ Successfully added memory with ID: {} (database only)",
+                        "Successfully added memory with ID: {} (database only)",
                         memory_id
                     )
                 } else {
-                    format!("❌ Failed to add memory with ID: {}", memory_id)
+                    format!("Failed to add memory with ID: {}", memory_id)
                 };
 
                 Ok(CallToolResult::success(vec![Content::text(success_text)]))
@@ -154,12 +154,12 @@ impl MimirServer {
             Ok(deleted) => {
                 if deleted {
                     Ok(CallToolResult::success(vec![Content::text(format!(
-                        "✅ Successfully deleted memory with ID: {}",
+                        "Successfully deleted memory with ID: {}",
                         id
                     ))]))
                 } else {
                     Ok(CallToolResult::success(vec![Content::text(format!(
-                        "⚠️ Memory with ID {} not found",
+                        "Memory with ID {} not found",
                         id
                     ))]))
                 }
@@ -172,7 +172,7 @@ impl MimirServer {
     }
 
     /// Search memories using vector similarity
-    #[tool(description = "Search memories using vector similarity")]
+    #[tool(description = "Get provided context from a users message")]
     async fn search_memories(
         &self,
         Parameters(SearchMemoriesParams { query }): Parameters<SearchMemoriesParams>,
@@ -181,11 +181,11 @@ impl MimirServer {
             Ok(results) => {
                 if results.is_empty() {
                     Ok(CallToolResult::success(vec![Content::text(format!(
-                        "🔍 No memories found for query: '{}'",
+                        "No memories found for query: '{}'",
                         query
                     ))]))
                 } else {
-                    let mut result_text = format!("🔍 Search results for query: '{}':\n", query);
+                    let mut result_text = format!("Search results for query: '{}':\n", query);
                     for (i, result) in results.iter().enumerate() {
                         result_text.push_str(&format!(
                             "{}. ID: {} | Similarity: {:.3} | Content: '{}'\n",
@@ -206,7 +206,7 @@ impl MimirServer {
     }
 
     /// List all memories in the vault
-    #[tool(description = "List all memories in the vault")]
+    #[tool(description = "List all memories about the user")]
     async fn list_memories(&self) -> std::result::Result<CallToolResult, ErrorData> {
         match self
             .storage
@@ -216,11 +216,11 @@ impl MimirServer {
             Ok(memories) => {
                 if memories.is_empty() {
                     Ok(CallToolResult::success(vec![Content::text(
-                        "📝 No memories found in vault".to_string(),
+                        "No memories found in vault".to_string(),
                     )]))
                 } else {
                     let mut result_text =
-                        format!("📝 Found {} memories in vault:\n", memories.len());
+                        format!("Found {} memories in vault:\n", memories.len());
                     for (i, memory) in memories.iter().enumerate() {
                         result_text.push_str(&format!(
                             "{}. ID: {} | Class: {:?} | Content: '{}'\n",
@@ -246,7 +246,7 @@ impl MimirServer {
         match self.storage.get_stats().await {
             Ok(stats) => {
                 let stats_text = format!(
-                    "📊 Vault Statistics:\n• Database memories: {}\n• Vector memories: {}\n• Memory usage: {} bytes\n• Vector store usage: {:.1}%",
+                    "Vault Statistics:\n• Database memories: {}\n• Vector memories: {}\n• Memory usage: {} bytes\n• Vector store usage: {:.1}%",
                     stats.database_memories,
                     stats.vector_memories,
                     stats.memory_usage_bytes,
@@ -256,7 +256,7 @@ impl MimirServer {
                 Ok(CallToolResult::success(vec![Content::text(stats_text)]))
             }
             Err(e) => Ok(CallToolResult::success(vec![Content::text(format!(
-                "❌ Failed to get vault stats: {}",
+                "Failed to get vault stats: {}",
                 e
             ))])),
         }
@@ -298,16 +298,16 @@ impl MimirServer {
             Ok(result) => {
                 let success_text = if result.database_stored && result.vector_stored {
                     format!(
-                        "✅ Successfully updated memory with ID: {} (database and vector store)",
+                        "Successfully updated memory with ID: {} (database and vector store)",
                         id
                     )
                 } else if result.database_stored {
                     format!(
-                        "✅ Successfully updated memory with ID: {} (database only)",
+                        "Successfully updated memory with ID: {} (database only)",
                         id
                     )
                 } else {
-                    format!("❌ Failed to update memory with ID: {}", id)
+                    format!("Failed to update memory with ID: {}", id)
                 };
 
                 Ok(CallToolResult::success(vec![Content::text(success_text)]))
@@ -324,7 +324,7 @@ impl MimirServer {
     async fn clear_vault(&self) -> std::result::Result<CallToolResult, ErrorData> {
         match self.storage.clear_vault().await {
             Ok(count) => Ok(CallToolResult::success(vec![Content::text(format!(
-                "🗑️ Successfully cleared {} memories from vault",
+                "Successfully cleared {} memories from vault",
                 count
             ))])),
             Err(e) => Err(ErrorData::invalid_request(
@@ -347,7 +347,7 @@ impl MimirServer {
     async fn save_vault(&self) -> std::result::Result<CallToolResult, ErrorData> {
         match self.storage.save_vector_store().await {
             Ok(_) => Ok(CallToolResult::success(vec![Content::text(
-                "✅ Vector store saved successfully to disk".to_string(),
+                "Vector store saved successfully to disk".to_string(),
             )])),
             Err(e) => Err(ErrorData::invalid_request(
                 format!("Failed to save vector store: {}", e),
@@ -372,7 +372,7 @@ impl MimirServer {
         let has_embedder = self.storage.has_vector_embedder().await;
 
         let status_text = format!(
-            "📊 Vector Store Status:\n• Vector count: {}\n• Database memories: {}\n• Has embedder: {}\n• Memory usage: {} bytes",
+            "Vector Store Status:\n• Vector count: {}\n• Database memories: {}\n• Has embedder: {}\n• Memory usage: {} bytes",
             stats.vector_memories,
             stats.database_memories,
             has_embedder,
@@ -465,7 +465,7 @@ mod tests {
 
         // Test adding a memory
         let add_params = AddMemoryParams {
-            user_id: "test-user".to_string(),
+            source: "test-agent".to_string(),
             text: "Test memory content".to_string(),
         };
 

@@ -13,6 +13,7 @@ mod mcp;
 mod server;
 mod storage;
 mod vault;
+mod model;
 
 /// Mimir - Local-First AI Memory Vault
 #[derive(Parser)]
@@ -114,6 +115,11 @@ async fn main() -> Result<()> {
         }
     }
 
+    // Ensure model files are present and valid
+    let (model_path, _tokenizer_path, _vocab_path) =
+        model::ensure_model_files().await.map_err(mimir_core::MimirError::ServerError)?;
+    eprintln!("Model file ready at: {}", model_path.display());
+
     // Determine server mode
     let server_mode = cli.mode.unwrap_or_else(|| {
         if config.mcp.enabled {
@@ -212,17 +218,13 @@ fn create_database(
 }
 
 /// Create vector store with embedder
-async fn create_vector_store(config: &Config) -> Result<mimir_vector::ThreadSafeVectorStore> {
-    let model_path = std::path::Path::new("crates/mimir/assets/bge-small-en-int8/model-int8.onnx");
+async fn create_vector_store_with_model(config: &Config, model_path: &std::path::Path) -> Result<mimir_vector::ThreadSafeVectorStore> {
     let vault_path = config.get_vault_path();
-
     if model_path.exists() {
         info!(
             "Loading vector store with embedder from: {}",
             model_path.display()
         );
-
-        // First try to load existing vector store data with embedder
         match mimir_vector::ThreadSafeVectorStore::load_with_embedder(
             vault_path.as_path(),
             None,             // root_key
@@ -234,7 +236,7 @@ async fn create_vector_store(config: &Config) -> Result<mimir_vector::ThreadSafe
         {
             Ok(Some(existing_store)) => {
                 info!(
-                    "✅ Loaded existing vector store with {} vectors and embedder",
+                    "Loaded existing vector store with {} vectors and embedder",
                     existing_store.len().await
                 );
                 Ok(existing_store)
@@ -345,7 +347,7 @@ async fn start_mcp_server(config: Config) -> Result<()> {
     let database = create_database(&config, db_crypto_manager)?;
 
     // Create vector store
-    let vector_store = create_vector_store(&config).await?;
+    let vector_store = create_vector_store_with_model(&config, &model::ensure_model_files().await.map_err(mimir_core::MimirError::ServerError)?.0).await?;
 
     // Create integrated storage
     let storage = create_integrated_storage(database, vector_store, storage_crypto_manager).await?;
@@ -648,7 +650,7 @@ mod tests {
             config.vault_path = temp_dir.path().to_path_buf();
 
             // Test creating vector store without embedder (model file doesn't exist)
-            let result = create_vector_store(&config).await;
+            let result = create_vector_store_with_model(&config, &model::ensure_model_files().await.map_err(mimir_core::MimirError::ServerError)?.0).await;
             assert!(result.is_ok());
 
             // Verify vector store directory was created

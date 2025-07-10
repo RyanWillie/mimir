@@ -202,9 +202,9 @@ impl IntegratedStorage {
     }
 
     /// Get last N memories for a user
-    pub async fn get_last_memories(&self, user_id: &str, limit: usize) -> Result<Vec<Memory>> {
+    pub async fn get_last_memories(&self, source: &str, limit: usize) -> Result<Vec<Memory>> {
         let mut db = self.database.lock().await;
-        db.get_last_memories(user_id, limit).await
+        db.get_last_memories(source, limit).await
     }
 
     /// Update an existing memory in both database and vector store

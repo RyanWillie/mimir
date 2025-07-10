@@ -23,7 +23,12 @@ tracing.workspace = true
 tracing-subscriber.workspace = true
 clap.workspace = true
 anyhow.workspace = true
-rmcp.workspace = true
+rmcp = { git = "https://github.com/modelcontextprotocol/rust-sdk", branch = "main", features = [
+    "transport-streamable-http-server-session",
+    "transport-streamable-http-server",
+    "transport-worker",
+    "transport-sse-server"
+] }
 serde.workspace = true
 serde_json.workspace = true
 chrono.workspace = true

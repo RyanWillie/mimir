@@ -2,8 +2,8 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use sha2::{Digest, Sha256};
 use reqwest::Client;
+use mimir_core::get_default_app_dir;
 
-const MODEL_DIR: &str = "models";
 const MODEL_ONNX: &str = "model-int8.onnx";
 const TOKENIZER: &str = "tokenizer.json";
 const VOCAB: &str = "vocab.txt";
@@ -15,9 +15,9 @@ const SHA_VOCAB: &str = "07eced375cec144d27c900241f3e339478dec958f92fddbc551f295
 const MODEL_BASE_URL: &str = "https://huggingface.co/BAAI/bge-small-en-v1.5/resolve/main";
 
 pub async fn ensure_model_files() -> Result<(PathBuf, PathBuf, PathBuf), String> {
-    let model_dir = Path::new(MODEL_DIR);
+    let model_dir = get_default_app_dir().join("models");
     if !model_dir.exists() {
-        fs::create_dir_all(model_dir).map_err(|e| format!("Failed to create model dir: {}", e))?;
+        fs::create_dir_all(&model_dir).map_err(|e| format!("Failed to create model dir: {}", e))?;
     }
     let model_path = model_dir.join(MODEL_ONNX);
     let tokenizer_path = model_dir.join(TOKENIZER);

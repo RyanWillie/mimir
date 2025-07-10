@@ -373,7 +373,7 @@ fn default_server_host() -> String {
     "localhost".to_string()
 }
 fn default_server_port() -> u16 {
-    8080
+    61827
 }
 fn default_mcp_enabled() -> bool {
     false

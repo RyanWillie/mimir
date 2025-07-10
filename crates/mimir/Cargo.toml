@@ -23,12 +23,20 @@ tracing.workspace = true
 tracing-subscriber.workspace = true
 clap.workspace = true
 anyhow.workspace = true
-rmcp.workspace = true
+rmcp = { git = "https://github.com/modelcontextprotocol/rust-sdk", branch = "main", features = [
+    "transport-streamable-http-server-session",
+    "transport-streamable-http-server",
+    "transport-worker",
+    "transport-sse-server"
+] }
 serde.workspace = true
 serde_json.workspace = true
 chrono.workspace = true
 uuid.workspace = true
 schemars = { version = "0.8", features = ["derive"] }
+reqwest = { version = "0.11", features = ["blocking", "json"] }
+hex = "0.4"
+sha2 = "0.10"
 
 [build-dependencies]
 sha2 = "0.10"

@@ -5,14 +5,19 @@
 use crate::vault::{check_vault_status, ensure_vault_ready};
 use clap::{Parser, Subcommand};
 use mimir_core::{Config, Result};
-use rmcp::ServiceExt;
+use rmcp::transport::streamable_http_server::{
+    StreamableHttpService, session::local::LocalSessionManager,
+};
+use axum::{Router, routing::post};
+use tokio::net::TcpListener;
 use std::path::PathBuf;
 use tracing::{error, info, warn};
+use rmcp::ServiceExt;
 
 mod mcp;
-mod server;
 mod storage;
 mod vault;
+mod model;
 
 /// Mimir - Local-First AI Memory Vault
 #[derive(Parser)]
@@ -42,23 +47,11 @@ struct Cli {
 
 #[derive(Subcommand, Debug)]
 enum ServerMode {
-    /// Start HTTP API server
-    Http {
-        /// Override server port
-        #[arg(short, long)]
-        port: Option<u16>,
-    },
     /// Start MCP (Model Context Protocol) server
     Mcp {
-        /// Force stdio transport even if config says otherwise
+        /// Force stdio transport (otherwise defaults to streamable HTTP)
         #[arg(long)]
         stdio: bool,
-    },
-    /// Start both HTTP and MCP servers
-    Both {
-        /// Override HTTP server port
-        #[arg(long)]
-        http_port: Option<u16>,
     },
 }
 
@@ -114,50 +107,34 @@ async fn main() -> Result<()> {
         }
     }
 
+    // Ensure model files are present and valid
+    let (model_path, _tokenizer_path, _vocab_path) =
+        model::ensure_model_files().await.map_err(mimir_core::MimirError::ServerError)?;
+    eprintln!("Model file ready at: {}", model_path.display());
+
     // Determine server mode
-    let server_mode = cli.mode.unwrap_or_else(|| {
-        if config.mcp.enabled {
-            ServerMode::Both { http_port: None }
-        } else {
-            ServerMode::Http { port: None }
-        }
-    });
+    let server_mode = cli.mode.unwrap_or(ServerMode::Mcp { stdio: false });
 
     // Start appropriate server mode
     match server_mode {
-        ServerMode::Http { port } => {
-            if let Some(port) = port {
-                config.server.port = port;
-            }
-            info!("Starting HTTP server mode");
-            start_http_server(config).await
-        }
         ServerMode::Mcp { stdio: force_stdio } => {
-            info!("Starting MCP server mode");
+            info!("Starting MCP server");
             if force_stdio {
                 config.mcp.transport = mimir_core::config::McpTransport::Stdio;
+                start_mcp_server(config).await
+            } else {
+                // Setup crypto managers
+                let (db_crypto_manager, storage_crypto_manager) = setup_crypto_managers(&config).await?;
+                // Create database
+                let database = create_database(&config, db_crypto_manager)?;
+                // Create vector store
+                let vector_store = create_vector_store_with_model(&config, &model_path).await?;
+                // Create integrated storage
+                let storage = create_integrated_storage(database, vector_store, storage_crypto_manager).await?;
+                // Create the MCP server with integrated storage
+                let mcp_server = mcp::MimirServer::new(storage);
+                start_mcp_streamhttp_server(config, mcp_server).await
             }
-            start_mcp_server(config).await
-        }
-        ServerMode::Both { http_port } => {
-            if let Some(port) = http_port {
-                config.server.port = port;
-            }
-            info!("Starting both HTTP and MCP servers");
-            start_both_servers(config).await
-        }
-    }
-}
-
-async fn start_http_server(config: Config) -> Result<()> {
-    match server::start(config).await {
-        Ok(_) => {
-            info!("HTTP server shutdown gracefully");
-            Ok(())
-        }
-        Err(e) => {
-            error!("HTTP server error: {}", e);
-            Err(e)
         }
     }
 }
@@ -212,17 +189,13 @@ fn create_database(
 }
 
 /// Create vector store with embedder
-async fn create_vector_store(config: &Config) -> Result<mimir_vector::ThreadSafeVectorStore> {
-    let model_path = std::path::Path::new("crates/mimir/assets/bge-small-en-int8/model-int8.onnx");
+async fn create_vector_store_with_model(config: &Config, model_path: &std::path::Path) -> Result<mimir_vector::ThreadSafeVectorStore> {
     let vault_path = config.get_vault_path();
-
     if model_path.exists() {
         info!(
             "Loading vector store with embedder from: {}",
             model_path.display()
         );
-
-        // First try to load existing vector store data with embedder
         match mimir_vector::ThreadSafeVectorStore::load_with_embedder(
             vault_path.as_path(),
             None,             // root_key
@@ -234,7 +207,7 @@ async fn create_vector_store(config: &Config) -> Result<mimir_vector::ThreadSafe
         {
             Ok(Some(existing_store)) => {
                 info!(
-                    "✅ Loaded existing vector store with {} vectors and embedder",
+                    "Loaded existing vector store with {} vectors and embedder",
                     existing_store.len().await
                 );
                 Ok(existing_store)
@@ -345,7 +318,7 @@ async fn start_mcp_server(config: Config) -> Result<()> {
     let database = create_database(&config, db_crypto_manager)?;
 
     // Create vector store
-    let vector_store = create_vector_store(&config).await?;
+    let vector_store = create_vector_store_with_model(&config, &model::ensure_model_files().await.map_err(mimir_core::MimirError::ServerError).unwrap().0).await?;
 
     // Create integrated storage
     let storage = create_integrated_storage(database, vector_store, storage_crypto_manager).await?;
@@ -357,34 +330,25 @@ async fn start_mcp_server(config: Config) -> Result<()> {
     start_mcp_service(mcp_server).await
 }
 
-async fn start_both_servers(config: Config) -> Result<()> {
-    info!("Starting both HTTP and MCP servers concurrently");
+async fn start_mcp_streamhttp_server(config: Config, mcp_server: mcp::MimirServer) -> Result<()> {
+    let addr = format!("{}:{}", config.server.host, config.server.port);
+    println!("Starting MCP server on {}", addr);
+    let listener = TcpListener::bind(&addr).await
+        .map_err(|e| mimir_core::MimirError::ServerError(format!("Failed to bind: {}", e)))?;
 
-    let config_http = config.clone();
-    let _config_mcp = config.clone();
+    let service = StreamableHttpService::new(
+        move || Ok(mcp_server.clone()),
+        LocalSessionManager::default().into(),
+        Default::default(),
+    );
+    // Use the correct handler as in the official example
+    let app = axum::Router::new()
+        .nest_service("/mcp", service);
 
-    // Start both servers concurrently
-    let http_handle = tokio::spawn(async move {
-        if let Err(e) = server::start(config_http).await {
-            error!("HTTP server error: {}", e);
-        }
-    });
-
-    let mcp_handle = tokio::spawn(async move {
-        // For now, we'll skip MCP server in "both" mode since it requires storage setup
-        // TODO: Implement proper storage setup for both mode
-        info!("MCP server not yet implemented in 'both' mode");
-    });
-
-    // Wait for both servers (they should run indefinitely)
-    tokio::select! {
-        _ = http_handle => {
-            info!("HTTP server terminated");
-        }
-        _ = mcp_handle => {
-            info!("MCP server terminated");
-        }
-    }
+    // Serve the app
+    axum::serve(listener, app)
+        .await
+        .map_err(|e| mimir_core::MimirError::ServerError(format!("Axum serve error: {}", e)))?;
 
     Ok(())
 }
@@ -426,23 +390,6 @@ mod tests {
     }
 
     #[test]
-    fn test_server_mode_http() {
-        // Test HTTP mode
-        let cli = Cli::try_parse_from(&["mimir", "http"]).unwrap();
-        match cli.mode.unwrap() {
-            ServerMode::Http { port } => assert!(port.is_none()),
-            _ => panic!("Expected HTTP mode"),
-        }
-
-        // Test HTTP mode with port
-        let cli = Cli::try_parse_from(&["mimir", "http", "--port", "8080"]).unwrap();
-        match cli.mode.unwrap() {
-            ServerMode::Http { port } => assert_eq!(port, Some(8080)),
-            _ => panic!("Expected HTTP mode with port"),
-        }
-    }
-
-    #[test]
     fn test_server_mode_mcp() {
         // Test MCP mode
         let cli = Cli::try_parse_from(&["mimir", "mcp"]).unwrap();
@@ -460,23 +407,6 @@ mod tests {
     }
 
     #[test]
-    fn test_server_mode_both() {
-        // Test both mode
-        let cli = Cli::try_parse_from(&["mimir", "both"]).unwrap();
-        match cli.mode.unwrap() {
-            ServerMode::Both { http_port } => assert!(http_port.is_none()),
-            _ => panic!("Expected both mode"),
-        }
-
-        // Test both mode with http-port
-        let cli = Cli::try_parse_from(&["mimir", "both", "--http-port", "9090"]).unwrap();
-        match cli.mode.unwrap() {
-            ServerMode::Both { http_port } => assert_eq!(http_port, Some(9090)),
-            _ => panic!("Expected both mode with http-port"),
-        }
-    }
-
-    #[test]
     fn test_cli_help() {
         // Verify help can be generated (ensures CLI structure is valid)
         let mut cmd = Cli::command();
@@ -487,9 +417,7 @@ mod tests {
         assert!(help_str.contains("--debug"));
         assert!(help_str.contains("--port"));
         assert!(help_str.contains("--config"));
-        assert!(help_str.contains("http"));
         assert!(help_str.contains("mcp"));
-        assert!(help_str.contains("both"));
     }
 
     #[test]
@@ -513,7 +441,7 @@ mod tests {
         let mut config = Config::default();
         config.mcp.enabled = true;
 
-        // When no mode is specified and MCP is enabled, should default to Both
+        // When no mode is specified and MCP is enabled, should default to MCP
         // This tests the logic in main() but we can't easily test that function directly
         // So we test the config building logic
         assert!(config.mcp.enabled);
@@ -526,19 +454,10 @@ mod tests {
     #[test]
     fn test_server_mode_debug_trait() {
         // Ensure ServerMode implements Debug (needed for testing and logging)
-        let http_mode = ServerMode::Http { port: Some(8080) };
-        let debug_str = format!("{:?}", http_mode);
-        assert!(debug_str.contains("Http"));
-        assert!(debug_str.contains("8080"));
-
         let mcp_mode = ServerMode::Mcp { stdio: true };
         let debug_str = format!("{:?}", mcp_mode);
         assert!(debug_str.contains("Mcp"));
         assert!(debug_str.contains("true"));
-
-        let both_mode = ServerMode::Both { http_port: None };
-        let debug_str = format!("{:?}", both_mode);
-        assert!(debug_str.contains("Both"));
     }
 
     #[test]
@@ -561,9 +480,8 @@ mod tests {
             "--debug",
             "--port",
             "5555",
-            "both",
-            "--http-port",
-            "6666",
+            "mcp",
+            "--stdio",
         ])
         .unwrap();
 
@@ -571,8 +489,8 @@ mod tests {
         assert_eq!(cli.port, Some(5555));
         assert_eq!(cli.config, Some(PathBuf::from("test.toml")));
         match cli.mode.unwrap() {
-            ServerMode::Both { http_port } => assert_eq!(http_port, Some(6666)),
-            _ => panic!("Expected both mode"),
+            ServerMode::Mcp { stdio } => assert!(stdio),
+            _ => panic!("Expected MCP mode"),
         }
     }
 
@@ -648,7 +566,7 @@ mod tests {
             config.vault_path = temp_dir.path().to_path_buf();
 
             // Test creating vector store without embedder (model file doesn't exist)
-            let result = create_vector_store(&config).await;
+            let result = create_vector_store_with_model(&config, &model::ensure_model_files().await.map_err(mimir_core::MimirError::ServerError).unwrap().0).await;
             assert!(result.is_ok());
 
             // Verify vector store directory was created

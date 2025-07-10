@@ -70,7 +70,7 @@ impl Database {
         conn.execute(
             "CREATE TABLE IF NOT EXISTS memory (
                 id        TEXT PRIMARY KEY,
-                user_id   TEXT NOT NULL,
+                source    TEXT NOT NULL,
                 class_id  TEXT NOT NULL,
                 text_enc  BLOB NOT NULL,
                 vec_id    INTEGER NOT NULL,
@@ -98,12 +98,12 @@ impl Database {
         })?;
 
         conn.execute(
-            "CREATE INDEX IF NOT EXISTS idx_memory_user_ts ON memory(user_id, ts DESC)",
+            "CREATE INDEX IF NOT EXISTS idx_memory_source_ts ON memory(source, ts DESC)",
             [],
         )
         .map_err(|e| {
             mimir_core::MimirError::Database(anyhow::anyhow!(
-                "Failed to create user_ts index: {}",
+                "Failed to create source_ts index: {}",
                 e
             ))
         })?;
@@ -174,8 +174,8 @@ impl Database {
             ))
         })?;
 
-        // Use a default user_id for now (can be made configurable later)
-        let user_id = "default_user";
+        // Use a default source for now (can be made configurable later)
+        let source = "default_source";
 
         // Use vec_id as 0 for now (can be updated when vector storage is implemented)
         let vec_id = 0;
@@ -186,11 +186,11 @@ impl Database {
         // Insert into database
         let conn = self.conn.lock().await;
         let result = conn.execute(
-            "INSERT OR REPLACE INTO memory (id, user_id, class_id, text_enc, vec_id, ts)
+            "INSERT OR REPLACE INTO memory (id, source, class_id, text_enc, vec_id, ts)
              VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
             params![
                 memory.id.to_string(),
-                user_id,
+                source,
                 class_id,
                 ciphertext_data,
                 vec_id,
@@ -221,7 +221,7 @@ impl Database {
         let conn = self.conn.lock().await;
         let mut stmt = conn
             .prepare(
-                "SELECT id, user_id, class_id, text_enc, vec_id, ts
+                "SELECT id, source, class_id, text_enc, vec_id, ts
              FROM memory WHERE class_id = ?1
              ORDER BY ts DESC",
             )
@@ -233,7 +233,7 @@ impl Database {
             .query_map([class_id], |row| {
                 Ok((
                     row.get::<_, String>(0)?,  // id
-                    row.get::<_, String>(1)?,  // user_id
+                    row.get::<_, String>(1)?,  // source
                     row.get::<_, String>(2)?,  // class_id
                     row.get::<_, Vec<u8>>(3)?, // text_enc
                     row.get::<_, i64>(4)?,     // vec_id
@@ -247,7 +247,7 @@ impl Database {
         let mut memories = Vec::new();
 
         for memory_result in memory_iter {
-            let (id_str, user_id, class_id, text_enc, _vec_id, ts) =
+            let (id_str, source, class_id, text_enc, _vec_id, ts) =
                 memory_result.map_err(|e| {
                     mimir_core::MimirError::Database(anyhow::anyhow!("Failed to read row: {}", e))
                 })?;
@@ -296,7 +296,7 @@ impl Database {
                 class: memory_class,
                 scope: None,                  // Not stored in new schema
                 tags: vec![],                 // Not stored in new schema
-                app_acl: vec![user_id],       // Use user_id as app_acl for now
+                app_acl: vec![source],       // Use source as app_acl for now
                 key_id: class_id.to_string(), // Use class_id as key_id
                 created_at,
                 updated_at,
@@ -309,12 +309,12 @@ impl Database {
     }
 
     /// Get the last N memories for a user
-    pub async fn get_last_memories(&mut self, user_id: &str, limit: usize) -> Result<Vec<Memory>> {
+    pub async fn get_last_memories(&mut self, source: &str, limit: usize) -> Result<Vec<Memory>> {
         let conn = self.conn.lock().await;
         let mut stmt = conn
             .prepare(
-                "SELECT id, user_id, class_id, text_enc, vec_id, ts
-             FROM memory WHERE user_id = ?1
+                "SELECT id, source, class_id, text_enc, vec_id, ts
+             FROM memory WHERE source = ?1
              ORDER BY ts DESC
              LIMIT ?2",
             )
@@ -323,10 +323,10 @@ impl Database {
             })?;
 
         let memory_iter = stmt
-            .query_map(params![user_id, limit as i64], |row| {
+            .query_map(params![source, limit as i64], |row| {
                 Ok((
                     row.get::<_, String>(0)?,  // id
-                    row.get::<_, String>(1)?,  // user_id
+                    row.get::<_, String>(1)?,  // source
                     row.get::<_, String>(2)?,  // class_id
                     row.get::<_, Vec<u8>>(3)?, // text_enc
                     row.get::<_, i64>(4)?,     // vec_id
@@ -340,7 +340,7 @@ impl Database {
         let mut memories = Vec::new();
 
         for memory_result in memory_iter {
-            let (id_str, user_id, class_id, text_enc, _vec_id, ts) =
+            let (id_str, source, class_id, text_enc, _vec_id, ts) =
                 memory_result.map_err(|e| {
                     mimir_core::MimirError::Database(anyhow::anyhow!("Failed to read row: {}", e))
                 })?;
@@ -389,7 +389,7 @@ impl Database {
                 class: memory_class,
                 scope: None,                  // Not stored in new schema
                 tags: vec![],                 // Not stored in new schema
-                app_acl: vec![user_id],       // Use user_id as app_acl for now
+                app_acl: vec![source],       // Use source as app_acl for now
                 key_id: class_id.to_string(), // Use class_id as key_id
                 created_at,
                 updated_at,
@@ -417,7 +417,7 @@ impl Database {
         let conn = self.conn.lock().await;
         let mut stmt = conn
             .prepare(
-                "SELECT id, user_id, class_id, text_enc, vec_id, ts
+                "SELECT id, source, class_id, text_enc, vec_id, ts
              FROM memory WHERE id = ?1",
             )
             .map_err(|e| {
@@ -428,7 +428,7 @@ impl Database {
             .query_map([id.to_string()], |row| {
                 Ok((
                     row.get::<_, String>(0)?,  // id
-                    row.get::<_, String>(1)?,  // user_id
+                    row.get::<_, String>(1)?,  // source
                     row.get::<_, String>(2)?,  // class_id
                     row.get::<_, Vec<u8>>(3)?, // text_enc
                     row.get::<_, i64>(4)?,     // vec_id
@@ -440,7 +440,7 @@ impl Database {
             })?;
 
         if let Some(memory_result) = rows.next() {
-            let (id_str, user_id, class_id, text_enc, _vec_id, ts) =
+            let (id_str, source, class_id, text_enc, _vec_id, ts) =
                 memory_result.map_err(|e| {
                     mimir_core::MimirError::Database(anyhow::anyhow!("Failed to read row: {}", e))
                 })?;
@@ -489,7 +489,7 @@ impl Database {
                 class: memory_class,
                 scope: None,                  // Not stored in new schema
                 tags: vec![],                 // Not stored in new schema
-                app_acl: vec![user_id],       // Use user_id as app_acl for now
+                app_acl: vec![source],       // Use source as app_acl for now
                 key_id: class_id.to_string(), // Use class_id as key_id
                 created_at,
                 updated_at,
@@ -693,7 +693,7 @@ mod tests {
         }
 
         // Get last 5 memories
-        let last_memories = db.get_last_memories("default_user", 5).await.unwrap();
+        let last_memories = db.get_last_memories("default_source", 5).await.unwrap();
         assert_eq!(last_memories.len(), 5);
     }
 

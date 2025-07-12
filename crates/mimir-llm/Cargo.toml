@@ -1,0 +1,45 @@
+[package]
+name = "mimir-llm"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+description = "LLM integration for Mimir AI Memory Vault using llama.cpp"
+
+[dependencies]
+mimir-core = { path = "../mimir-core" }
+tokio.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+anyhow.workspace = true
+uuid.workspace = true
+tracing = "0.1"
+
+# LLM inference with llama.cpp
+llama-cpp-2 = "0.1.65"
+
+# Error handling
+thiserror = "1.0"
+
+# Async utilities
+futures = "0.3"
+
+# Path handling
+dunce = "1.0"
+
+# Configuration
+once_cell = "1.19"
+
+# Time handling
+chrono = { version = "0.4", features = ["serde"] }
+
+[dev-dependencies]
+tokio-test.workspace = true
+tempfile = "3.10"
+tracing-subscriber.workspace = true
+
+[features]
+default = []
+cuda = ["llama-cpp-2/cuda"]
+metal = ["llama-cpp-2/metal"] 

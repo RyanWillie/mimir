@@ -110,7 +110,11 @@ async fn main() -> Result<()> {
     // Ensure model files are present and valid
     let (model_path, _tokenizer_path, _vocab_path) =
         model::ensure_model_files().await.map_err(mimir_core::MimirError::ServerError)?;
-    eprintln!("Model file ready at: {}", model_path.display());
+    eprintln!("BGE model file ready at: {}", model_path.display());
+
+    // Ensure Gemma3 model is available
+    let gemma3_path = model::ensure_gemma3_model().await.map_err(mimir_core::MimirError::ServerError)?;
+    eprintln!("Gemma3 model file ready at: {}", gemma3_path.display());
 
     // Determine server mode
     let server_mode = cli.mode.unwrap_or(ServerMode::Mcp { stdio: false });

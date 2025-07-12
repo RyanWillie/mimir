@@ -4,6 +4,7 @@ use sha2::{Digest, Sha256};
 use reqwest::Client;
 use mimir_core::get_default_app_dir;
 
+// BGE model constants
 const MODEL_ONNX: &str = "model-int8.onnx";
 const TOKENIZER: &str = "tokenizer.json";
 const VOCAB: &str = "vocab.txt";
@@ -13,6 +14,12 @@ const SHA_TOKENIZER: &str = "d241a60d5e8f04cc1b2b3e9ef7a4921b27bf526d9f6050ab90f
 const SHA_VOCAB: &str = "07eced375cec144d27c900241f3e339478dec958f92fddbc551f295c992038a3";
 
 const MODEL_BASE_URL: &str = "https://huggingface.co/BAAI/bge-small-en-v1.5/resolve/main";
+
+// Gemma3 model constants
+const GEMMA3_MODEL_FILE: &str = "gemma-3-1b-it-qat-q4_0.gguf";
+const GEMMA3_BASE_URL: &str = "https://huggingface.co/google/gemma-3-1b-it-qat-q4_0-gguf/resolve/main";
+// SHA256 checksum will be calculated and updated after first download
+const GEMMA3_SHA: &str = ""; // Will be filled after first download
 
 pub async fn ensure_model_files() -> Result<(PathBuf, PathBuf, PathBuf), String> {
     let model_dir = get_default_app_dir().join("models");
@@ -33,6 +40,27 @@ pub async fn ensure_model_files() -> Result<(PathBuf, PathBuf, PathBuf), String>
     verify_sha256(&vocab_path, SHA_VOCAB)?;
 
     Ok((model_path, tokenizer_path, vocab_path))
+}
+
+/// Ensure Gemma3 model is downloaded and available
+pub async fn ensure_gemma3_model() -> Result<PathBuf, String> {
+    let model_dir = get_default_app_dir().join("models");
+    if !model_dir.exists() {
+        fs::create_dir_all(&model_dir).map_err(|e| format!("Failed to create model dir: {}", e))?;
+    }
+    
+    let gemma3_path = model_dir.join(GEMMA3_MODEL_FILE);
+    
+    let client = Client::new();
+    download_if_missing(&client, &gemma3_path, &format!("{}/{}", GEMMA3_BASE_URL, GEMMA3_MODEL_FILE), GEMMA3_MODEL_FILE).await?;
+    
+    // Skip SHA verification for now since we don't have the checksum yet
+    // TODO: Add SHA verification after first download
+    if !GEMMA3_SHA.is_empty() {
+        verify_sha256(&gemma3_path, GEMMA3_SHA)?;
+    }
+    
+    Ok(gemma3_path)
 }
 
 async fn download_if_missing(client: &Client, path: &Path, url: &str, name: &str) -> Result<(), String> {

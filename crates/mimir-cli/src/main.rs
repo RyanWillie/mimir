@@ -66,6 +66,50 @@ enum BurnTarget {
     All,
 }
 
+/// Ensure models are downloaded during initialization
+async fn ensure_models_downloaded() -> Result<()> {
+    // Import the model functions
+    use mimir_core::get_default_app_dir;
+    use reqwest::Client;
+    use std::fs;
+    use std::path::Path;
+    
+    // Simple function to download Gemma3 model
+    let model_dir = get_default_app_dir().join("models");
+    if !model_dir.exists() {
+        fs::create_dir_all(&model_dir).map_err(|e| {
+            mimir_core::MimirError::Initialization(format!("Failed to create models directory: {}", e))
+        })?;
+    }
+    
+    let gemma3_path = model_dir.join("gemma-3-1b-it-qat-q4_0.gguf");
+    
+    // Download Gemma3 model if not exists
+    if !gemma3_path.exists() {
+        println!("📥 Downloading Gemma3 1B model...");
+        let client = Client::new();
+        let url = "https://huggingface.co/google/gemma-3-1b-it-qat-q4_0-gguf/resolve/main/gemma-3-1b-it-qat-q4_0.gguf";
+        
+        let response = client.get(url).send().await.map_err(|e| {
+            mimir_core::MimirError::Initialization(format!("Failed to download Gemma3 model: {}", e))
+        })?;
+        
+        let bytes = response.bytes().await.map_err(|e| {
+            mimir_core::MimirError::Initialization(format!("Failed to read Gemma3 model bytes: {}", e))
+        })?;
+        
+        fs::write(&gemma3_path, &bytes).map_err(|e| {
+            mimir_core::MimirError::Initialization(format!("Failed to write Gemma3 model: {}", e))
+        })?;
+        
+        println!("✅ Gemma3 model downloaded to: {}", gemma3_path.display());
+    } else {
+        println!("✅ Gemma3 model already exists at: {}", gemma3_path.display());
+    }
+    
+    Ok(())
+}
+
 #[tokio::main]
 async fn main() -> Result<()> {
     tracing_subscriber::fmt().init();
@@ -97,6 +141,10 @@ async fn main() -> Result<()> {
 
             // Create the directory if it doesn't exist
             std::fs::create_dir_all(&vault_dir)?;
+
+            // Download required models
+            println!("📦 Ensuring models are downloaded...");
+            ensure_models_downloaded().await?;
 
             // Set encryption mode
             if password {

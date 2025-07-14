@@ -5,7 +5,7 @@ edition.workspace = true
 license.workspace = true
 repository.workspace = true
 authors.workspace = true
-description = "LLM integration for Mimir AI Memory Vault using llama.cpp"
+description = "LLM integration for Mimir AI Memory Vault using MistralRS"
 
 [dependencies]
 mimir-core = { path = "../mimir-core" }
@@ -16,30 +16,32 @@ anyhow.workspace = true
 uuid.workspace = true
 tracing = "0.1"
 
-# LLM inference with llama.cpp
-llama-cpp-2 = "0.1.65"
+# LLM inference with MistralRS
+mistralrs = { git = "https://github.com/EricLBuehler/mistral.rs.git" }
 
 # Error handling
 thiserror = "1.0"
-
-# Async utilities
-futures = "0.3"
 
 # Path handling
 dunce = "1.0"
 
 # Configuration
-once_cell = "1.19"
+once_cell = "1.21"
 
 # Time handling
 chrono = { version = "0.4", features = ["serde"] }
+
+# CLI utilities
+clap = { version = "4.0", features = ["derive"] }
 
 [dev-dependencies]
 tokio-test.workspace = true
 tempfile = "3.10"
 tracing-subscriber.workspace = true
+# Additional dependencies for examples
+tracing-chrome = "0.7"
+image = "0.25.6"  # For vision examples
 
 [features]
 default = []
-cuda = ["llama-cpp-2/cuda"]
-metal = ["llama-cpp-2/metal"] 
+metal = ["mistralrs/metal"]

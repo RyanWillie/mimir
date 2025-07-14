@@ -43,11 +43,21 @@ pub enum LlmError {
     /// Timeout during inference
     #[error("Inference timeout after {seconds} seconds")]
     Timeout { seconds: u64 },
+
+    /// MistralRS specific errors
+    #[error("MistralRS error: {0}")]
+    MistralRS(String),
 }
 
-// Note: llama-cpp-2 uses different error handling, converting via string for now
 impl From<String> for LlmError {
     fn from(err: String) -> Self {
         LlmError::Inference(err)
+    }
+}
+
+// Support for anyhow errors (common in MistralRS examples)
+impl From<anyhow::Error> for LlmError {
+    fn from(err: anyhow::Error) -> Self {
+        LlmError::Inference(err.to_string())
     }
 } 

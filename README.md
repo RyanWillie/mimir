@@ -215,7 +215,7 @@ graph TD
     style D fill:#e1f5fe
     style F fill:#e1f5fe
     style K fill:#e1f5fe
-    style S fill:#c8e6c9
+    style S fill:#c8e6c9W
 
 ## 🤝 Community
 

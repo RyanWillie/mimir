@@ -61,43 +61,36 @@ impl PromptManager {
     
     /// Default template for memory extraction
     fn default_extract_template() -> String {
-        r#"<bos><start_of_turn>user
-You are a memory extraction assistant. Your task is to identify and extract memorable, important information from the given text.
+        r#"Extract user memories (goals, preferences, facts, context). Ignore pleasantries. Output JSON: {"memories": [{"content": "memory text", "relevance": 0.0-1.0}]}. Relevance: 0.0=none, 1.0=high.
 
-Extract information that is:
-- Actionable (tasks, appointments, reminders)
-- Factual (names, dates, locations, decisions)
-- Personal (preferences, experiences, learnings)
-- Contextual (project details, relationships, goals)
+        Relevance Score (0.0-1.0):
 
-For each piece of memorable information, provide:
-1. The extracted content (concise but complete)
-2. A confidence score (0.0-1.0)
-3. A suggested category (personal, work, health, financial, other)
+    0.0: No memory extracted (e.g., 'Thanks for that').
+
+    0.1-0.3: Low relevance; general sentiment or minor context.
+
+    0.4-0.6: Medium relevance; useful but not critical for immediate action.
+
+    0.7-0.9: High relevance; direct user goals, strong preferences, or key facts.
+
+    1.0: Critical relevance; explicit, actionable requests or core user intent.
+    
+Examples:
+User: 'Thanks for that'
+Memories: {"memories": []}
+
+User: 'I am wanting to find a good book to read, what do you recommend?'
+Memories: {"memories": [{"content": "User is wanting to find a good book", "relevance": 0.9}]}
 
 Input text:
 {INPUT}
 
-Respond in JSON format:
-{
-  "memories": [
-    {
-      "content": "extracted memory content",
-      "confidence": 0.85,
-      "category": "work",
-      "context": "brief context if needed"
-    }
-  ]
-}
-<end_of_turn>
-<start_of_turn>model
-"#.to_string()
+JSON Response:"#.to_string()
     }
     
     /// Default template for memory summarization
     fn default_summarize_template() -> String {
-        r#"<bos><start_of_turn>user
-You are a memory summarization assistant. Condense the given memory content while preserving all important information.
+        r#"You are a memory summarization assistant. Condense the given memory content while preserving all important information.
 
 Requirements:
 - Keep all key facts, dates, names, and actionable items
@@ -108,16 +101,12 @@ Requirements:
 Memory to summarize:
 {CONTENT}
 
-Provide a concise summary that captures the essential information:
-<end_of_turn>
-<start_of_turn>model
-"#.to_string()
+Summary:"#.to_string()
     }
     
     /// Default template for conflict resolution
     fn default_resolve_template() -> String {
-        r#"<bos><start_of_turn>user
-You are a memory conflict resolution assistant. Two similar memories have been detected (similarity: {SIMILARITY}). Determine the best action to take.
+        r#"You are a memory conflict resolution assistant. Two similar memories have been detected (similarity: {SIMILARITY}). Determine the best action to take.
 
 Existing memory:
 {EXISTING}
@@ -137,15 +126,13 @@ Respond in JSON format:
   "reason": "brief explanation of your decision",
   "result": "final memory content (if merging or replacing)"
 }
-<end_of_turn>
-<start_of_turn>model
-"#.to_string()
+
+JSON Response:"#.to_string()
     }
     
     /// Default template for memory classification
     fn default_classify_template() -> String {
-        r#"<bos><start_of_turn>user
-You are a memory classification assistant. Classify the given memory content into the most appropriate category.
+        r#"You are a memory classification assistant. Classify the given memory content into the most appropriate category.
 
 Categories:
 - personal: Personal life, relationships, hobbies, preferences
@@ -157,10 +144,7 @@ Categories:
 Memory content:
 {CONTENT}
 
-Respond with just the category name (lowercase):
-<end_of_turn>
-<start_of_turn>model
-"#.to_string()
+Category:"#.to_string()
     }
 }
 
@@ -180,9 +164,7 @@ pub struct ExtractionResponse {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ExtractedMemory {
     pub content: String,
-    pub confidence: f32,
-    pub category: String,
-    pub context: Option<String>,
+    pub relevance: f32,
 }
 
 /// Parse conflict resolution response from LLM
@@ -216,7 +198,7 @@ mod tests {
             "memories": [
                 {
                     "content": "Call John tomorrow at 3pm",
-                    "confidence": 0.9,
+                    "relevance": 0.9,
                     "category": "personal",
                     "context": "scheduled call"
                 }
@@ -226,6 +208,6 @@ mod tests {
         let response: ExtractionResponse = serde_json::from_str(json).unwrap();
         assert_eq!(response.memories.len(), 1);
         assert_eq!(response.memories[0].content, "Call John tomorrow at 3pm");
-        assert_eq!(response.memories[0].confidence, 0.9);
+        assert_eq!(response.memories[0].relevance, 0.9);
     }
 } 

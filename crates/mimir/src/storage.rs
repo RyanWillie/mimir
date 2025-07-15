@@ -345,6 +345,11 @@ impl IntegratedStorage {
         self.vector_store.has_embedder().await
     }
 
+    /// Get the LLM service if available
+    pub fn get_llm_service(&self) -> Option<Arc<super::llm_service::LlmService>> {
+        self.llm_service.clone()
+    }
+
     /// Save the vector store to disk
     pub async fn save_vector_store(&self) -> Result<()> {
         info!("Saving vector store to disk");

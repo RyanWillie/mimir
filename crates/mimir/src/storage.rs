@@ -6,13 +6,13 @@ use mimir_vector::ThreadSafeVectorStore;
 use std::sync::Arc;
 use tokio::sync::Mutex;
 use tracing::{error, info, warn};
-use uuid::Uuid;
 
 /// Integrated storage manager that coordinates database and vector store operations
 pub struct IntegratedStorage {
     database: Arc<Mutex<Database>>,
     vector_store: Arc<ThreadSafeVectorStore>,
     crypto_manager: Arc<CryptoManager>,
+    llm_service: Option<Arc<super::llm_service::LlmService>>,
 }
 
 /// Search result with full memory data
@@ -42,7 +42,14 @@ impl IntegratedStorage {
             database: Arc::new(Mutex::new(database)),
             vector_store: Arc::new(vector_store),
             crypto_manager: Arc::new(crypto_manager),
+            llm_service: None,
         })
+    }
+
+    /// Set the LLM service for memory processing
+    pub fn with_llm_service(mut self, llm_service: Arc<super::llm_service::LlmService>) -> Self {
+        self.llm_service = Some(llm_service);
+        self
     }
 
     /// Add a memory to both database and vector store
@@ -171,13 +178,10 @@ impl IntegratedStorage {
     pub async fn delete_memory(&self, memory_id: MemoryId) -> Result<bool> {
         info!("Deleting memory: {}", memory_id);
 
-        let mut deleted = false;
-
         // Delete from database first
         {
-            let mut db = self.database.lock().await;
+            let db = self.database.lock().await;
             db.delete_memory(memory_id).await?;
-            deleted = true;
         }
 
         // Delete from vector store
@@ -192,7 +196,7 @@ impl IntegratedStorage {
             }
         }
 
-        Ok(deleted)
+        Ok(true)
     }
 
     /// Get memories by class

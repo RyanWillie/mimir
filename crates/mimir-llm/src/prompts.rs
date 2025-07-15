@@ -21,6 +21,7 @@ pub struct PromptManager {
     summarize_template: String,
     resolve_template: String,
     classify_template: String,
+    search_summary_template: String,
 }
 
 impl PromptManager {
@@ -31,6 +32,7 @@ impl PromptManager {
             summarize_template: Self::default_summarize_template(),
             resolve_template: Self::default_resolve_template(),
             classify_template: Self::default_classify_template(),
+            search_summary_template: Self::default_search_summary_template(),
         }
     }
     
@@ -59,44 +61,72 @@ impl PromptManager {
         self.classify_template.replace("{CONTENT}", content)
     }
     
+    /// Build a prompt for search result summarization
+    pub fn build_search_summary_prompt(&self, query: &str, results: &[String]) -> String {
+        let results_text = results.join("\n\n");
+        self.search_summary_template
+            .replace("{QUERY}", query)
+            .replace("{RESULTS}", &results_text)
+    }
+    
     /// Default template for memory extraction
     fn default_extract_template() -> String {
-        r#"Extract user memories (goals, preferences, facts, context). Ignore pleasantries. Output JSON: {"memories": [{"content": "memory text", "relevance": 0.0-1.0}]}. Relevance: 0.0=none, 1.0=high.
+        r#"You are an expert memory extraction system. Your task is to identify and extract "user memories" from the provided user message.
 
-        Relevance Score (0.0-1.0):
+A "user memory" is a concise, actionable piece of information about the user's current goal, preference, state, or an ongoing topic that the agent should remember for future interactions.
 
-    0.0: No memory extracted (e.g., 'Thanks for that').
+Extract only genuinely relevant and actionable memories. Exclude conversational filler, acknowledgments, or trivial statements.
 
-    0.1-0.3: Low relevance; general sentiment or minor context.
+Output the extracted memories as a JSON array of strings. Each string should be a brief, clear summary of the memory. If no relevant memories are found, output an empty JSON array `[]`.
 
-    0.4-0.6: Medium relevance; useful but not critical for immediate action.
+---
+**Examples:**
 
-    0.7-0.9: High relevance; direct user goals, strong preferences, or key facts.
+**User Message:** "Thanks for that, I really appreciate it."
+**Output:** `[]`
 
-    1.0: Critical relevance; explicit, actionable requests or core user intent.
-    
-Examples:
-User: 'Thanks for that'
-Memories: {"memories": []}
+**User Message:** "I am wanting to find a good book to read, what do you recommend?"
+**Output:** `["User is wanting to find a good book to read"]`
 
-User: 'I am wanting to find a good book to read, what do you recommend?'
-Memories: {"memories": [{"content": "User is wanting to find a good book", "relevance": 0.9}]}
+**User Message:** "My favorite color is blue, and I live in London."
+**Output:** `["User's favorite color is blue", "User lives in London"]`
+
+**User Message:** "Can you help me plan a trip to Paris next summer? I'm interested in art museums and prefer quiet places."
+**Output:** `["User wants to plan a trip to Paris next summer", "User is interested in art museums", "User prefers quiet places"]`
+
+**User Message:** "Okay, sounds good."
+**Output:** `[]`
+
+---
+**Your Turn:**
 
 Input text:
-{INPUT}
-
-JSON Response:"#.to_string()
+{INPUT}"#.to_string()
     }
     
     /// Default template for memory summarization
     fn default_summarize_template() -> String {
-        r#"You are a memory summarization assistant. Condense the given memory content while preserving all important information.
+        r#"You are an expert memory summarization assistant. Your task is to condense provided content into a concise summary. The goal is to extract and retain only the most critical and relevant information to reduce token usage while preserving utility for future interactions.
 
-Requirements:
-- Keep all key facts, dates, names, and actionable items
-- Maintain clarity and context
-- Target approximately {MAX_TOKENS} tokens or less
-- Preserve the original meaning and intent
+**Key Requirements for Summarization:**
+
+* **Extract Core Facts & Concepts:** Identify and preserve all essential facts, key concepts, significant decisions, and concrete details.
+* **Identify Actionable Information & Implications:** Capture any explicit or implicit requests, goals, preferences, tasks, strategic considerations, potential implications, or information that requires future action, attention, or influences agent behavior/decisions.
+* **Maintain Context and Intent:** Ensure the summarized memory accurately reflects the original meaning, purpose, and context of the input. Do not introduce new information or interpretations.
+* **Prioritize Relevance:** Focus on information that is most likely to be relevant or impactful for the agent's future operation, decision-making, or interaction with users.
+* **Conciseness Target:** Aim for a summary that is approximately 50 tokens or less. Be as succinct as possible without sacrificing critical information.
+
+**Example 1**
+
+* **Input Content:** "Considering making episodic memory reflection a cloud-based feature rather than local processing - recognizing the computational overhead and complexity of running continuous LLM reflections locally."
+* **Desired Output Summary:** "Decision point: Episodic memory reflection likely better as cloud-based feature due to local LLM computational overhead."
+
+**Example 2**
+
+* **Input Content:** "I'm having trouble getting gemma3 1B to work with candle core, should this be straight forward?"
+* **Desired Output Summary:** "User is having trouble getting gemma3 1B to work with candle core"
+
+
 
 Memory to summarize:
 {CONTENT}
@@ -145,6 +175,27 @@ Memory content:
 {CONTENT}
 
 Category:"#.to_string()
+    }
+    
+    /// Default template for search result summarization
+    fn default_search_summary_template() -> String {
+        r#"You are a search result summarization assistant. Your task is to analyze search results and provide a concise, relevant summary that directly addresses the user's query.
+
+QUERY:
+{QUERY}
+
+SEARCH RESULTS:
+{RESULTS}
+
+INSTRUCTIONS:
+1. Focus on information that directly answers the query
+2. Eliminate redundant or irrelevant information
+3. Maintain key facts, dates, names, and actionable items
+4. Provide a coherent, well-structured summary
+5. Keep the summary concise but comprehensive
+6. If results are not relevant to the query, clearly state this
+
+SUMMARY:"#.to_string()
     }
 }
 

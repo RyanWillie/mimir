@@ -70,6 +70,15 @@ let class = service.classify_memory("Meeting tomorrow at 2pm").await?;
 
 // Resolve conflicts between similar memories
 let resolution = service.resolve_conflict(existing_memory, new_memory, 0.85).await?;
+
+// Summarize search results for relevance and reduced token output
+let query = "What meetings do I have scheduled?";
+let results = vec![
+    "Meeting with John tomorrow at 3pm".to_string(),
+    "Team standup every Monday at 9am".to_string(),
+    "Dentist appointment next Friday".to_string(),
+];
+let summary = service.summarize_search_results(query, &results).await?;
 ```
 
 ## Supported Models
@@ -107,6 +116,9 @@ cargo run --example model_swapping
 
 # Simple Gemma3 test
 cargo run --example gemma_integration
+
+# Search result summarization
+cargo run --example search_summarization
 ```
 
 ## Configuration

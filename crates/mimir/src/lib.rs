@@ -5,6 +5,7 @@
 
 pub mod mcp;
 pub mod storage;
+pub mod llm_service;
 
 // Re-export commonly used functions for external use (e.g., testing)
 pub use mimir_core::{Config, MimirError, Result};

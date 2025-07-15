@@ -21,6 +21,9 @@ const GEMMA3_BASE_URL: &str = "https://huggingface.co/google/gemma-3-1b-it-qat-q
 // SHA256 checksum will be calculated and updated after first download
 const GEMMA3_SHA: &str = ""; // Will be filled after first download
 
+// LLM model constants
+const LLM_MODEL_DIR: &str = "gemma-3-1b-it-standard";
+
 pub async fn ensure_model_files() -> Result<(PathBuf, PathBuf, PathBuf), String> {
     let model_dir = get_default_app_dir().join("models");
     if !model_dir.exists() {
@@ -61,6 +64,51 @@ pub async fn ensure_gemma3_model() -> Result<PathBuf, String> {
     }
     
     Ok(gemma3_path)
+}
+
+/// Get the default LLM model path for Gemma3
+pub fn get_default_llm_model_path() -> PathBuf {
+    get_default_app_dir().join("models").join(LLM_MODEL_DIR)
+}
+
+/// Ensure LLM model directory exists and is valid
+pub async fn ensure_llm_model() -> Result<PathBuf, String> {
+    let model_dir = get_default_app_dir().join("models");
+    if !model_dir.exists() {
+        fs::create_dir_all(&model_dir).map_err(|e| format!("Failed to create model dir: {}", e))?;
+    }
+    
+    let llm_model_path = model_dir.join(LLM_MODEL_DIR);
+    
+    // Check if the LLM model directory exists
+    if !llm_model_path.exists() {
+        return Err(format!(
+            "LLM model directory not found at: {}. Please ensure the Gemma3 model is properly installed.",
+            llm_model_path.display()
+        ));
+    }
+    
+    // Check if it's a directory
+    if !llm_model_path.is_dir() {
+        return Err(format!(
+            "LLM model path is not a directory: {}",
+            llm_model_path.display()
+        ));
+    }
+    
+    // Check for required files (basic validation)
+    let required_files = ["config.json", "tokenizer.json", "tokenizer_config.json"];
+    for file in &required_files {
+        let file_path = llm_model_path.join(file);
+        if !file_path.exists() {
+            return Err(format!(
+                "Required LLM model file not found: {}",
+                file_path.display()
+            ));
+        }
+    }
+    
+    Ok(llm_model_path)
 }
 
 async fn download_if_missing(client: &Client, path: &Path, url: &str, name: &str) -> Result<(), String> {

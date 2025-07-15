@@ -40,11 +40,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
 
     // Example conversation text
     let conversation = r#"
-    User: I need to call John tomorrow at 3pm about the project deadline.
-    Assistant: I'll help you remember that. What's the project deadline?
-    User: It's next Friday, and I also need to pick up groceries on my way home today.
-    Assistant: Got it. So you have a call with John tomorrow at 3pm about the Friday deadline, and groceries today.
-    User: Yes, and I should also schedule a dentist appointment for next month.
+    I’m having trouble getting gemma3 1B to work with candle core, should this be straight forward?
     "#;
 
     println!("\n📝 Processing conversation:");
@@ -71,9 +67,10 @@ async fn main() -> Result<(), Box<dyn Error>> {
     // 2. Summarize a memory
     println!("\n📝 Summarizing memory...");
     let long_memory = "I need to call John tomorrow at 3pm about the project deadline which is next Friday, and I also need to pick up groceries on my way home today, and I should also schedule a dentist appointment for next month.";
-    
+    let test_message = "I think I want to use gemma3 to drive the internal mechanisms of the memory store, dealing with memory conflict resolution, merging, summarising etc. what does this look like for me?";
+    let next_message = "Shared detailed YouTube transcript about implementing four-type memory systems for AI agents (working, episodic, semantic, procedural memory) by Adam LK - comprehensive guide covering cognitive architectures, memory frameworks, and practical implementation approaches for agentic language model systems";
     let start_time = Instant::now();
-    match service.summarize_memory(long_memory, 50).await {
+    match service.summarize_memory(next_message, 50).await {
         Ok(summary) => {
             let duration = start_time.elapsed();
             println!("✅ Summary (took {:.2?}): {}", duration, summary);
@@ -87,9 +84,9 @@ async fn main() -> Result<(), Box<dyn Error>> {
     // 3. Classify a memory
     println!("\n🏷️ Classifying memory...");
     let memory_to_classify = "Meeting with the team tomorrow at 2pm to discuss Q4 budget";
-    
+    let other_message = "User weighs 80kg";
     let start_time = Instant::now();
-    match service.classify_memory(memory_to_classify).await {
+    match service.classify_memory(other_message).await {
         Ok(class) => {
             let duration = start_time.elapsed();
             println!("✅ Classified as {:?} (took {:.2?})", class, duration);
@@ -103,7 +100,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
     // 4. Resolve a conflict
     println!("\n⚖️ Resolving memory conflict...");
     let existing_memory = "Meeting with John tomorrow at 3pm about project deadline";
-    let new_memory = "Meeting with John tomorrow at 4pm about project deadline";
+    let new_memory = "Meeting with Alice on Thursday at 4pm for coffee";
     let similarity = 0.85;
     
     let start_time = Instant::now();

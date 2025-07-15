@@ -207,6 +207,16 @@ impl MistralRSService {
         Ok(self.parse_memory_class(&category))
     }
     
+    /// Summarize search results for relevance and reduced token output
+    pub async fn summarize_search_results(&mut self, query: &str, results: &[String]) -> LlmResult<String> {
+        self.ensure_loaded().await?;
+        
+        let prompt = self.prompt_manager.build_search_summary_prompt(query, results);
+        let response = self.generate_response(&prompt).await?;
+        
+        Ok(response.trim().to_string())
+    }
+    
     /// Generate a response using the MistralRS model
     pub async fn generate_response(&mut self, prompt: &str) -> LlmResult<String> {
         let model = self.model.as_ref()

@@ -205,16 +205,63 @@ impl MimirServer {
                         query
                     ))]))
                 } else {
-                    let mut result_text = format!("Search results for query: '{}':\n", query);
-                    for (i, result) in results.iter().enumerate() {
-                        result_text.push_str(&format!(
-                            "{}. ID: {} | Similarity: {:.3} | Content: '{}'\n",
-                            i + 1,
-                            result.memory.id,
-                            result.similarity,
-                            result.memory.content
-                        ));
-                    }
+                    // Try to summarize search results if LLM service is available
+                    let result_text = if let Some(llm_service) = self.storage.get_llm_service() {
+                        // Extract content from search results for summarization
+                        let search_contents: Vec<String> = results.iter()
+                            .map(|result| result.memory.content.clone())
+                            .collect();
+                        
+                        match llm_service.summarize_search_results(&query, &search_contents).await {
+                            Ok(summary) => {
+                                info!("Successfully summarized search results from {} memories", results.len());
+                                println!("Query: {}", query);
+                                
+                                // Print detailed search results with similarity scores
+                                println!("Search Results with Similarity Scores:");
+                                for (i, result) in results.iter().enumerate() {
+                                    println!("{}. ID: {} | Similarity: {:.3} | Content: '{}'", 
+                                        i + 1, 
+                                        result.memory.id, 
+                                        result.similarity, 
+                                        result.memory.content);
+                                }
+                                
+                                println!("Summary: {}", summary);
+                                format!("{}", summary)
+                            }
+                            Err(e) => {
+                                warn!("Failed to summarize search results: {}, using detailed format", e);
+                                // Fallback to detailed format
+                                let mut detailed_text = format!("Search results for query: '{}':\n", query);
+                                for (i, result) in results.iter().enumerate() {
+                                    detailed_text.push_str(&format!(
+                                        "{}. ID: {} | Similarity: {:.3} | Content: '{}'\n",
+                                        i + 1,
+                                        result.memory.id,
+                                        result.similarity,
+                                        result.memory.content
+                                    ));
+                                }
+                                detailed_text
+                            }
+                        }
+                    } else {
+                        info!("LLM service not available, using detailed search results format");
+                        // Fallback to detailed format when LLM service is not available
+                        let mut detailed_text = format!("Search results for query: '{}':\n", query);
+                        for (i, result) in results.iter().enumerate() {
+                            detailed_text.push_str(&format!(
+                                "{}. ID: {} | Similarity: {:.3} | Content: '{}'\n",
+                                i + 1,
+                                result.memory.id,
+                                result.similarity,
+                                result.memory.content
+                            ));
+                        }
+                        detailed_text
+                    };
+                    
                     Ok(CallToolResult::success(vec![Content::text(result_text)]))
                 }
             }

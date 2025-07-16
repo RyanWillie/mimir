@@ -179,23 +179,33 @@ Category:"#.to_string()
     
     /// Default template for search result summarization
     fn default_search_summary_template() -> String {
-        r#"You are a search result summarization assistant. Your task is to analyze search results and provide a concise, relevant summary that directly addresses the user's query.
+        r#"
+You are a highly focused Information Extractor. Your task is to process a set of SEARCH RESULTS and pull out only the information that directly and clearly answers the user's QUERY.
+
+Your process must follow these strict steps:
+
+    Analyze the Query: Understand the core subject and specific information requested in the QUERY. Identify key terms, concepts, and the type of information sought (e.g., definitions, features, steps, comparisons, examples, causes, effects, etc.).
+
+    Scan for Direct Matches: Read through each SEARCH RESULT meticulously. Look for sentences or phrases that contain the key terms or directly address the specific information type identified in Step 1.
+
+    Extract Relevant Sentences/Phrases: Copy only the sentences or distinct phrases that directly answer or provide relevant details for the QUERY. Do not paraphrase or add your own words.
+
+    Consolidate & List: Combine all extracted sentences/phrases into a single, organized list of bullet points. Each bullet point should be a concise piece of extracted information. If a single point contains multiple sub-details, use sub-bullets.
+
+    Eliminate Redundancy: Review your extracted list. If the same piece of information is present in multiple sentences, include it only once.
+
+    Maintain Originality: Ensure the extracted information retains its original wording and factual accuracy from the SEARCH RESULTS.
+
+    Handle Irrelevance: If, after thorough review, you find no information in the SEARCH RESULTS that directly answers or is highly relevant to the QUERY, your sole output must be: "No relevant information found."
+
+    Exclusive Output: Your output must consist only of the bulleted list of extracted information or the "No relevant information found" statement. Do not include any introductory phrases, conversational elements, or extraneous text.
 
 QUERY:
 {QUERY}
 
 SEARCH RESULTS:
 {RESULTS}
-
-INSTRUCTIONS:
-1. Focus on information that directly answers the query
-2. Eliminate redundant or irrelevant information
-3. Maintain key facts, dates, names, and actionable items
-4. Provide a coherent, well-structured summary
-5. Keep the summary concise but comprehensive
-6. If results are not relevant to the query, clearly state this
-
-SUMMARY:"#.to_string()
+"#.to_string()
     }
 }
 

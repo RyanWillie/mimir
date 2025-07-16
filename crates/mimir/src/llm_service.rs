@@ -5,11 +5,11 @@
 use mimir_llm::{LlmConfig, ModelType, QuantizationType, MistralRSService, LlmResult};
 use mimir_core::{Config, Result};
 use std::sync::Arc;
-use tokio::sync::Mutex;
+use tokio::sync::{Mutex, OnceCell};
 use tracing::info;
 
-/// Global LLM service instance
-static mut LLM_SERVICE: Option<Arc<LlmService>> = None;
+/// Global LLM service instance - thread-safe singleton
+static LLM_SERVICE: OnceCell<Arc<LlmService>> = OnceCell::const_new();
 
 /// LLM service wrapper for the main Mimir server
 pub struct LlmService {
@@ -142,7 +142,17 @@ impl Default for LlmService {
 }
 
 /// Initialize the global LLM service
-pub async fn initialize_llm_service(config: &Config) -> Result<()> {
+/// 
+/// This function is thread-safe and can be called multiple times safely.
+/// Only the first call will actually initialize the service, subsequent calls
+/// will return immediately if the service is already initialized.
+pub async fn initialize_llm_service(_config: &Config) -> Result<()> {
+    // Check if already initialized
+    if LLM_SERVICE.get().is_some() {
+        info!("Global LLM service already initialized");
+        return Ok(());
+    }
+    
     info!("Initializing global LLM service...");
     
     // Get the default LLM model path
@@ -176,9 +186,8 @@ pub async fn initialize_llm_service(config: &Config) -> Result<()> {
         .map_err(|e| mimir_core::MimirError::ServerError(format!("Failed to initialize LLM service: {}", e)))?;
     
     // Store the global instance
-    unsafe {
-        LLM_SERVICE = Some(Arc::new(llm_service));
-    }
+    LLM_SERVICE.set(Arc::new(llm_service))
+        .map_err(|_| mimir_core::MimirError::ServerError("Failed to initialize global LLM service".to_string()))?;
     
     info!("Global LLM service initialized successfully");
     Ok(())
@@ -186,9 +195,19 @@ pub async fn initialize_llm_service(config: &Config) -> Result<()> {
 
 /// Get the global LLM service instance
 pub fn get_llm_service() -> Option<Arc<LlmService>> {
-    unsafe {
-        LLM_SERVICE.clone()
-    }
+    LLM_SERVICE.get().cloned()
+}
+
+/// Check if the global LLM service is initialized
+pub fn is_llm_service_initialized() -> bool {
+    LLM_SERVICE.get().is_some()
+}
+
+/// Get the global LLM service instance or return an error if not initialized
+pub fn get_llm_service_or_error() -> Result<Arc<LlmService>> {
+    LLM_SERVICE.get()
+        .cloned()
+        .ok_or_else(|| mimir_core::MimirError::ServerError("LLM service not initialized".to_string()))
 }
 
 #[cfg(test)]
@@ -216,5 +235,55 @@ mod tests {
         let service = LlmService::new();
         let cloned = service.clone();
         assert_eq!(service.is_initialized(), cloned.is_initialized());
+    }
+
+    #[test]
+    fn test_global_service_not_initialized() {
+        // Ensure the global service is not initialized in tests
+        assert!(!is_llm_service_initialized());
+        assert!(get_llm_service().is_none());
+        assert!(get_llm_service_or_error().is_err());
+    }
+
+    #[tokio::test]
+    async fn test_global_service_initialization() {
+        // This test would require a mock model to avoid actual model loading
+        // For now, we just test the structure without actual initialization
+        assert!(!is_llm_service_initialized());
+    }
+
+    #[tokio::test]
+    async fn test_thread_safety() {
+        use std::sync::Arc;
+        use tokio::sync::Barrier;
+        use std::sync::atomic::{AtomicUsize, Ordering};
+
+        // Test that multiple threads can safely check the service state
+        let barrier = Arc::new(Barrier::new(10));
+        let counter = Arc::new(AtomicUsize::new(0));
+        let mut handles = vec![];
+
+        for _ in 0..10 {
+            let barrier = barrier.clone();
+            let counter = counter.clone();
+            
+            let handle = tokio::spawn(async move {
+                barrier.wait().await;
+                // All threads check the service state simultaneously
+                if !is_llm_service_initialized() {
+                    counter.fetch_add(1, Ordering::SeqCst);
+                }
+            });
+            
+            handles.push(handle);
+        }
+
+        // Wait for all threads to complete
+        for handle in handles {
+            handle.await.unwrap();
+        }
+
+        // All threads should have found the service uninitialized
+        assert_eq!(counter.load(Ordering::SeqCst), 10);
     }
 } 

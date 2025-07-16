@@ -8,7 +8,7 @@ members = [
     "crates/mimir-compression",
     "crates/mimir-sdk",
     "crates/mimir-cli",
-    "crates/mimir-tray",
+    # "crates/mimir-tray",  # Temporarily disabled due to Tauri compatibility issues
     "crates/mimir-core",
     "crates/mimir-llm",
     # "bindings/nodejs",  # Temporarily disabled until napi issues are resolved

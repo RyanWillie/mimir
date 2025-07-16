@@ -20,9 +20,9 @@ tracing.workspace = true
 tonic.workspace = true
 
 # Tauri for cross-platform UI
-tauri = { version = "2.0", features = ["macos-private-api"] }
-tauri-plugin-store = "2.0"
-tauri-plugin-window-state = "2.0"
+tauri = { version = "2.0.0-beta.12", features = ["macos-private-api"] }
+tauri-plugin-store = "2.0.0-beta.12"
+tauri-plugin-window-state = "2.0.0-beta.12"
 
 [dev-dependencies]
-tauri = { version = "2.0", features = ["test"] } 
+tauri = { version = "2.0.0-beta.12", features = ["test"] } 

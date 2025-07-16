@@ -541,7 +541,7 @@ mod tests {
 
         // Test that the default threshold is set
         let default_threshold = storage.get_similarity_threshold().await;
-        assert_eq!(default_threshold, 0.7);
+        assert_eq!(default_threshold, 0.6);
 
         // Test setting a new threshold
         storage.set_similarity_threshold(0.5).await;

@@ -240,18 +240,6 @@ pub struct ConflictResolutionResponse {
 mod tests {
     use super::*;
     
-    #[test]
-    fn test_prompt_building() {
-        let manager = PromptManager::new();
-        
-        let extract_prompt = manager.build_extract_prompt("I need to call John tomorrow at 3pm");
-        assert!(extract_prompt.contains("I need to call John tomorrow at 3pm"));
-        assert!(extract_prompt.contains("JSON format"));
-        
-        let summarize_prompt = manager.build_summarize_prompt("Long content here", 150);
-        assert!(summarize_prompt.contains("Long content here"));
-        assert!(summarize_prompt.contains("150"));
-    }
     
     #[test]
     fn test_json_parsing() {

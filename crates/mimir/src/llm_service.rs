@@ -5,6 +5,7 @@
 use mimir_llm::{LlmConfig, ModelType, QuantizationType, MistralRSService, LlmResult};
 use mimir_core::{Config, Result};
 use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
 use tokio::sync::{Mutex, OnceCell};
 use tracing::info;
 
@@ -15,8 +16,8 @@ static LLM_SERVICE: OnceCell<Arc<LlmService>> = OnceCell::const_new();
 pub struct LlmService {
     /// The underlying MistralRS service
     service: Arc<Mutex<MistralRSService>>,
-    /// Whether the service is initialized
-    initialized: bool,
+    /// Whether the service is initialized (thread-safe)
+    initialized: AtomicBool,
 }
 
 impl LlmService {
@@ -31,7 +32,7 @@ impl LlmService {
 
         Self {
             service: Arc::new(Mutex::new(MistralRSService::new(config))),
-            initialized: false,
+            initialized: AtomicBool::new(false),
         }
     }
 
@@ -39,13 +40,13 @@ impl LlmService {
     pub fn with_config(config: LlmConfig) -> Self {
         Self {
             service: Arc::new(Mutex::new(MistralRSService::new(config))),
-            initialized: false,
+            initialized: AtomicBool::new(false),
         }
     }
 
     /// Initialize the LLM service (load the model)
     pub async fn initialize(&mut self) -> LlmResult<()> {
-        if self.initialized {
+        if self.initialized.load(Ordering::Acquire) {
             return Ok(());
         }
 
@@ -54,7 +55,7 @@ impl LlmService {
         let mut service = self.service.lock().await;
         service.load_model().await?;
         
-        self.initialized = true;
+        self.initialized.store(true, Ordering::Release);
         info!("LLM service initialized successfully");
         
         Ok(())
@@ -62,12 +63,12 @@ impl LlmService {
 
     /// Check if the service is initialized
     pub fn is_initialized(&self) -> bool {
-        self.initialized
+        self.initialized.load(Ordering::Acquire)
     }
 
     /// Extract memories from text
     pub async fn extract_memories(&self, text: &str) -> LlmResult<Vec<mimir_llm::ExtractedMemory>> {
-        if !self.initialized {
+        if !self.initialized.load(Ordering::Acquire) {
             return Err(mimir_llm::LlmError::ModelNotLoaded);
         }
 
@@ -77,7 +78,7 @@ impl LlmService {
 
     /// Summarize memory content
     pub async fn summarize_memory(&self, content: &str, max_tokens: usize) -> LlmResult<String> {
-        if !self.initialized {
+        if !self.initialized.load(Ordering::Acquire) {
             return Err(mimir_llm::LlmError::ModelNotLoaded);
         }
 
@@ -87,7 +88,7 @@ impl LlmService {
 
     /// Resolve conflicts between memories
     pub async fn resolve_conflict(&self, existing: &str, new: &str, similarity: f32) -> LlmResult<mimir_llm::ConflictResolution> {
-        if !self.initialized {
+        if !self.initialized.load(Ordering::Acquire) {
             return Err(mimir_llm::LlmError::ModelNotLoaded);
         }
 
@@ -97,7 +98,7 @@ impl LlmService {
 
     /// Classify memory content
     pub async fn classify_memory(&self, content: &str) -> LlmResult<mimir_core::MemoryClass> {
-        if !self.initialized {
+        if !self.initialized.load(Ordering::Acquire) {
             return Err(mimir_llm::LlmError::ModelNotLoaded);
         }
 
@@ -107,7 +108,7 @@ impl LlmService {
 
     /// Summarize search results
     pub async fn summarize_search_results(&self, query: &str, results: &[String]) -> LlmResult<String> {
-        if !self.initialized {
+        if !self.initialized.load(Ordering::Acquire) {
             return Err(mimir_llm::LlmError::ModelNotLoaded);
         }
 
@@ -117,7 +118,7 @@ impl LlmService {
 
     /// Generate a response using the LLM
     pub async fn generate_response(&self, prompt: &str) -> LlmResult<String> {
-        if !self.initialized {
+        if !self.initialized.load(Ordering::Acquire) {
             return Err(mimir_llm::LlmError::ModelNotLoaded);
         }
 
@@ -130,7 +131,7 @@ impl Clone for LlmService {
     fn clone(&self) -> Self {
         Self {
             service: self.service.clone(),
-            initialized: self.initialized,
+            initialized: AtomicBool::new(self.initialized.load(Ordering::Acquire)),
         }
     }
 }

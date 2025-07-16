@@ -16,9 +16,6 @@ anyhow.workspace = true
 uuid.workspace = true
 tracing = "0.1"
 
-# LLM inference with MistralRS
-mistralrs = { git = "https://github.com/EricLBuehler/mistral.rs.git" }
-
 # Error handling
 thiserror = "1.0"
 
@@ -34,6 +31,13 @@ chrono = { version = "0.4", features = ["serde"] }
 # CLI utilities
 clap = { version = "4.0", features = ["derive"] }
 
+# LLM inference with MistralRS
+[target.'cfg(target_os = "macos")'.dependencies]
+mistralrs = { git = "https://github.com/EricLBuehler/mistral.rs.git", features = ["metal"] }
+
+[target.'cfg(not(target_os = "macos"))'.dependencies]
+mistralrs = { git = "https://github.com/EricLBuehler/mistral.rs.git" }
+
 [dev-dependencies]
 tokio-test.workspace = true
 tempfile = "3.10"
@@ -44,4 +48,3 @@ image = "0.25.6"  # For vision examples
 
 [features]
 default = []
-metal = ["mistralrs/metal"]

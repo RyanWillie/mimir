@@ -18,6 +18,7 @@ mod mcp;
 mod storage;
 mod vault;
 mod model;
+mod llm_service;
 
 /// Mimir - Local-First AI Memory Vault
 #[derive(Parser)]
@@ -110,7 +111,14 @@ async fn main() -> Result<()> {
     // Ensure model files are present and valid
     let (model_path, _tokenizer_path, _vocab_path) =
         model::ensure_model_files().await.map_err(mimir_core::MimirError::ServerError)?;
-    eprintln!("Model file ready at: {}", model_path.display());
+    eprintln!("BGE model file ready at: {}", model_path.display());
+
+    // Ensure Gemma3 model is available
+    let gemma3_path = model::ensure_gemma3_model().await.map_err(mimir_core::MimirError::ServerError)?;
+    eprintln!("Gemma3 model file ready at: {}", gemma3_path.display());
+
+    // Initialize LLM service
+    llm_service::initialize_llm_service(&config).await?;
 
     // Determine server mode
     let server_mode = cli.mode.unwrap_or(ServerMode::Mcp { stdio: false });
@@ -259,8 +267,14 @@ async fn create_integrated_storage(
     vector_store: mimir_vector::ThreadSafeVectorStore,
     storage_crypto_manager: mimir_core::crypto::CryptoManager,
 ) -> Result<storage::IntegratedStorage> {
-    let storage =
+    let mut storage =
         storage::IntegratedStorage::new(database, vector_store, storage_crypto_manager).await?;
+    
+    // Add LLM service if available
+    if let Some(llm_service) = llm_service::get_llm_service() {
+        storage = storage.with_llm_service(llm_service);
+    }
+    
     Ok(storage)
 }
 

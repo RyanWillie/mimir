@@ -4,6 +4,7 @@ use sha2::{Digest, Sha256};
 use reqwest::Client;
 use mimir_core::get_default_app_dir;
 
+// BGE model constants
 const MODEL_ONNX: &str = "model-int8.onnx";
 const TOKENIZER: &str = "tokenizer.json";
 const VOCAB: &str = "vocab.txt";
@@ -13,6 +14,15 @@ const SHA_TOKENIZER: &str = "d241a60d5e8f04cc1b2b3e9ef7a4921b27bf526d9f6050ab90f
 const SHA_VOCAB: &str = "07eced375cec144d27c900241f3e339478dec958f92fddbc551f295c992038a3";
 
 const MODEL_BASE_URL: &str = "https://huggingface.co/BAAI/bge-small-en-v1.5/resolve/main";
+
+// Gemma3 model constants
+const GEMMA3_MODEL_FILE: &str = "gemma-3-1b-it-qat-q4_0.gguf";
+const GEMMA3_BASE_URL: &str = "https://huggingface.co/google/gemma-3-1b-it-qat-q4_0-gguf/resolve/main";
+// SHA256 checksum will be calculated and updated after first download
+const GEMMA3_SHA: &str = ""; // Will be filled after first download
+
+// LLM model constants
+const LLM_MODEL_DIR: &str = "gemma-3-1b-it-standard";
 
 pub async fn ensure_model_files() -> Result<(PathBuf, PathBuf, PathBuf), String> {
     let model_dir = get_default_app_dir().join("models");
@@ -33,6 +43,72 @@ pub async fn ensure_model_files() -> Result<(PathBuf, PathBuf, PathBuf), String>
     verify_sha256(&vocab_path, SHA_VOCAB)?;
 
     Ok((model_path, tokenizer_path, vocab_path))
+}
+
+/// Ensure Gemma3 model is downloaded and available
+pub async fn ensure_gemma3_model() -> Result<PathBuf, String> {
+    let model_dir = get_default_app_dir().join("models");
+    if !model_dir.exists() {
+        fs::create_dir_all(&model_dir).map_err(|e| format!("Failed to create model dir: {}", e))?;
+    }
+    
+    let gemma3_path = model_dir.join(GEMMA3_MODEL_FILE);
+    
+    let client = Client::new();
+    download_if_missing(&client, &gemma3_path, &format!("{}/{}", GEMMA3_BASE_URL, GEMMA3_MODEL_FILE), GEMMA3_MODEL_FILE).await?;
+    
+    // Skip SHA verification for now since we don't have the checksum yet
+    // TODO: Add SHA verification after first download
+    if !GEMMA3_SHA.is_empty() {
+        verify_sha256(&gemma3_path, GEMMA3_SHA)?;
+    }
+    
+    Ok(gemma3_path)
+}
+
+/// Get the default LLM model path for Gemma3
+pub fn get_default_llm_model_path() -> PathBuf {
+    get_default_app_dir().join("models").join(LLM_MODEL_DIR)
+}
+
+/// Ensure LLM model directory exists and is valid
+pub async fn ensure_llm_model() -> Result<PathBuf, String> {
+    let model_dir = get_default_app_dir().join("models");
+    if !model_dir.exists() {
+        fs::create_dir_all(&model_dir).map_err(|e| format!("Failed to create model dir: {}", e))?;
+    }
+    
+    let llm_model_path = model_dir.join(LLM_MODEL_DIR);
+    
+    // Check if the LLM model directory exists
+    if !llm_model_path.exists() {
+        return Err(format!(
+            "LLM model directory not found at: {}. Please ensure the Gemma3 model is properly installed.",
+            llm_model_path.display()
+        ));
+    }
+    
+    // Check if it's a directory
+    if !llm_model_path.is_dir() {
+        return Err(format!(
+            "LLM model path is not a directory: {}",
+            llm_model_path.display()
+        ));
+    }
+    
+    // Check for required files (basic validation)
+    let required_files = ["config.json", "tokenizer.json", "tokenizer_config.json"];
+    for file in &required_files {
+        let file_path = llm_model_path.join(file);
+        if !file_path.exists() {
+            return Err(format!(
+                "Required LLM model file not found: {}",
+                file_path.display()
+            ));
+        }
+    }
+    
+    Ok(llm_model_path)
 }
 
 async fn download_if_missing(client: &Client, path: &Path, url: &str, name: &str) -> Result<(), String> {

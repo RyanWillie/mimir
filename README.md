@@ -1,3 +1,7 @@
+<p align="center">
+  <img src="assets/logo.png" alt="Mimir Logo" width="180"/>
+</p>
+
 # Mimir – Local-First, Zero-Knowledge AI Memory Vault
 
 [![Rust](https://github.com/your-org/mimir/actions/workflows/rust.yml/badge.svg)](https://github.com/your-org/mimir/actions/workflows/rust.yml)
@@ -7,6 +11,24 @@
 > **Privacy-first memory layer for AI applications** – Remember across sessions without compromising your data.
 
 Mimir provides developers and end-users with a privacy-first memory layer that lets any LLM application remember across sessions without handing raw data to third parties.
+
+---
+
+## 📑 Table of Contents
+- [Design Principles](#-design-principles)
+- [Quick Start](#-quick-start)
+- [Usage Examples](#usage-examples)
+- [Architecture](#-architecture)
+- [Security & Privacy](#-security--privacy)
+- [Development](#-development)
+- [Roadmap](#-roadmap)
+- [License](#-license)
+- [Community](#-community)
+- [Acknowledgments](#-acknowledgments)
+- [Screenshots / Demo](#-screenshots--demo)
+- [Contact / Support](#-contact--support)
+
+---
 
 ## 🎯 Design Principles
 
@@ -148,7 +170,7 @@ We welcome contributions! Please see [CONTRIBUTING.md](CONTRIBUTING.md) for guid
 4. Push to the branch: `git push origin feature/amazing-feature`
 5. Open a Pull Request
 
-## 📋 Roadmap
+## �� Roadmap
 
 - [x] **v0.1.0** - Core daemon with basic MCP server *(Current)*
 - [ ] **v0.2.0** - Vector store and embedding pipeline
@@ -164,6 +186,37 @@ See [ROADMAP.md](docs/ROADMAP.md) for detailed timeline.
 - **Core components** (daemon, SDK, guardrails): [Apache License 2.0](LICENSE-APACHE)
 - **UI components** (tray widget): [AGPL-3.0](LICENSE-AGPL) to keep derivative UIs open-source
 
+graph TD
+    A["User Conversations"] --> B["Ingest Text Tool"]
+    B --> C["Text Preprocessing"]
+    C --> D["Gemma3 1B<br/>Content Extractor"]
+    D --> E["Raw Memory Candidates"]
+    E --> F["Gemma3 1B<br/>Summarizer"]
+    F --> G["Summarized Memories"]
+    G --> H["Similarity Check<br/>(Vector Store)"]
+    H --> I{"Duplicate<br/>Detection"}
+    I -->|"New"| J["Direct Storage"]
+    I -->|"Similar"| K["Gemma3 1B<br/>Conflict Resolver"]
+    K --> L{"Resolution<br/>Decision"}
+    L -->|"Merge"| M["Update Existing"]
+    L -->|"Replace"| N["Replace Existing"]
+    L -->|"Keep Both"| O["Store as New"]
+    
+    P["Add Memories Tool<br/>(Deliberate)"] --> Q["Manual Memory Input"]
+    Q --> F
+    
+    J --> R["Final Storage<br/>(Database + Vector)"]
+    M --> R
+    N --> R
+    O --> R
+    
+    R --> S["Memory Vault"]
+    
+    style D fill:#e1f5fe
+    style F fill:#e1f5fe
+    style K fill:#e1f5fe
+    style S fill:#c8e6c9W
+
 ## 🤝 Community
 
 - **Issues**: [GitHub Issues](https://github.com/ryanwillie/mimir/issues)
@@ -178,3 +231,14 @@ See [ROADMAP.md](docs/ROADMAP.md) for detailed timeline.
 ---
 
 *"The best way to predict the future is to invent it, but the best way to remember it is to own it."* 
+
+## 🖼️ Screenshots / Demo
+
+<!-- Add screenshots, GIFs, or demo links here -->
+
+---
+
+## 📬 Contact / Support
+
+- For help, questions, or feedback, please open an [issue](https://github.com/ryanwillie/mimir/issues) or join the [discussions](https://github.com/ryanwillie/mimir/discussions).
+- For security concerns, see [SECURITY.md](SECURITY.md). 

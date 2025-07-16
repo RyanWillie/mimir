@@ -6,13 +6,14 @@ use mimir_vector::ThreadSafeVectorStore;
 use std::sync::Arc;
 use tokio::sync::Mutex;
 use tracing::{error, info, warn};
-use uuid::Uuid;
 
 /// Integrated storage manager that coordinates database and vector store operations
 pub struct IntegratedStorage {
     database: Arc<Mutex<Database>>,
     vector_store: Arc<ThreadSafeVectorStore>,
     crypto_manager: Arc<CryptoManager>,
+    llm_service: Option<Arc<super::llm_service::LlmService>>,
+    similarity_threshold: Arc<Mutex<f32>>,
 }
 
 /// Search result with full memory data
@@ -42,7 +43,27 @@ impl IntegratedStorage {
             database: Arc::new(Mutex::new(database)),
             vector_store: Arc::new(vector_store),
             crypto_manager: Arc::new(crypto_manager),
+            llm_service: None,
+            similarity_threshold: Arc::new(Mutex::new(0.6)), // Default similarity threshold
         })
+    }
+
+    /// Set the LLM service for memory processing
+    pub fn with_llm_service(mut self, llm_service: Arc<super::llm_service::LlmService>) -> Self {
+        self.llm_service = Some(llm_service);
+        self
+    }
+
+    /// Set the similarity threshold for search results
+    pub async fn set_similarity_threshold(&self, threshold: f32) {
+        let mut threshold_guard = self.similarity_threshold.lock().await;
+        *threshold_guard = threshold;
+    }
+
+    /// Get the current similarity threshold
+    pub async fn get_similarity_threshold(&self) -> f32 {
+        let threshold_guard = self.similarity_threshold.lock().await;
+        *threshold_guard
     }
 
     /// Add a memory to both database and vector store
@@ -157,8 +178,21 @@ impl IntegratedStorage {
                 .unwrap_or(std::cmp::Ordering::Equal)
         });
 
-        info!("Returning {} search results", search_results.len());
-        Ok(search_results)
+        // Filter results by similarity threshold
+        let threshold = self.get_similarity_threshold().await;
+        let original_count = search_results.len();
+        let filtered_results: Vec<MemorySearchResult> = search_results
+            .into_iter()
+            .filter(|result| result.similarity >= threshold)
+            .collect();
+
+        info!(
+            "Filtered {} results to {} results (threshold: {:.3})",
+            original_count,
+            filtered_results.len(),
+            threshold
+        );
+        Ok(filtered_results)
     }
 
     /// Get memory by ID
@@ -171,13 +205,10 @@ impl IntegratedStorage {
     pub async fn delete_memory(&self, memory_id: MemoryId) -> Result<bool> {
         info!("Deleting memory: {}", memory_id);
 
-        let mut deleted = false;
-
         // Delete from database first
         {
-            let mut db = self.database.lock().await;
+            let db = self.database.lock().await;
             db.delete_memory(memory_id).await?;
-            deleted = true;
         }
 
         // Delete from vector store
@@ -192,7 +223,7 @@ impl IntegratedStorage {
             }
         }
 
-        Ok(deleted)
+        Ok(true)
     }
 
     /// Get memories by class
@@ -339,6 +370,11 @@ impl IntegratedStorage {
 
     pub async fn has_vector_embedder(&self) -> bool {
         self.vector_store.has_embedder().await
+    }
+
+    /// Get the LLM service if available
+    pub fn get_llm_service(&self) -> Option<Arc<super::llm_service::LlmService>> {
+        self.llm_service.clone()
     }
 
     /// Save the vector store to disk
@@ -497,5 +533,19 @@ mod tests {
         let stats = storage.get_stats().await.unwrap();
         assert_eq!(stats.database_memories, 0);
         assert_eq!(stats.vector_memories, 0);
+    }
+
+    #[tokio::test]
+    async fn test_similarity_threshold() {
+        let (storage, _temp_dir) = create_test_storage().await;
+
+        // Test that the default threshold is set
+        let default_threshold = storage.get_similarity_threshold().await;
+        assert_eq!(default_threshold, 0.6);
+
+        // Test setting a new threshold
+        storage.set_similarity_threshold(0.5).await;
+        let new_threshold = storage.get_similarity_threshold().await;
+        assert_eq!(new_threshold, 0.5);
     }
 }

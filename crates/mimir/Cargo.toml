@@ -15,6 +15,7 @@ path = "src/main.rs"
 mimir-core = { path = "../mimir-core" }
 mimir-db = { path = "../mimir-db" }
 mimir-vector = { path = "../mimir-vector" }
+mimir-llm = { path = "../mimir-llm" }
 tokio.workspace = true
 axum.workspace = true
 tower.workspace = true

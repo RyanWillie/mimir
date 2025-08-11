@@ -22,7 +22,9 @@ tower.workspace = true
 tower-http.workspace = true
 tracing.workspace = true
 tracing-subscriber.workspace = true
+tokio-stream = { version = "0.1", features = ["sync"] }
 tracing-appender = "0.2"
+futures-util = "0.3"
 clap.workspace = true
 anyhow.workspace = true
 rmcp = { git = "https://github.com/modelcontextprotocol/rust-sdk", branch = "main", features = [

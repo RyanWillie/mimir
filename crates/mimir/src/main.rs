@@ -15,6 +15,12 @@ use std::path::PathBuf;
 use tracing::{error, info, warn};
 use tracing_subscriber::{fmt, layer::SubscriberExt, EnvFilter};
 use tracing_appender::rolling;
+use tokio::sync::broadcast;
+use tokio_stream::wrappers::BroadcastStream;
+use futures_util::StreamExt;
+use axum::response::sse::{Sse, Event, KeepAlive};
+use std::{convert::Infallible, time::Duration};
+use std::io;
 use rmcp::ServiceExt;
 
 mod mcp;
@@ -63,7 +69,7 @@ enum ServerMode {
 async fn main() -> Result<()> {
     let cli = Cli::parse();
 
-    // Initialize logging (stdout + rotating file)
+    // Initialize logging (stdout + rotating file + SSE layer)
     let log_level = if cli.debug { "debug" } else { "info" };
     let env_filter = EnvFilter::builder()
         .with_default_directive(format!("mimir={},mimir_core={}", log_level, log_level).parse().unwrap())
@@ -77,13 +83,20 @@ async fn main() -> Result<()> {
     let file_appender = rolling::daily(&log_dir, "mimir.log");
     let (file_writer, _guard) = tracing_appender::non_blocking(file_appender);
 
+    // Create broadcast channel for SSE log streaming
+    let (log_tx, _log_rx) = broadcast::channel::<String>(1024);
+
     // Build subscriber with stdout and file layers
     let stdout_layer = fmt::layer().with_writer(std::io::stdout);
     let file_layer = fmt::layer().with_writer(file_writer);
+    // JSON layer that writes events to broadcast channel for SSE
+    let tx_for_layer = log_tx.clone();
+    let sse_layer = fmt::layer().with_writer(move || ChannelWriter { tx: tx_for_layer.clone() });
     let subscriber = tracing_subscriber::registry()
         .with(env_filter)
         .with(stdout_layer)
-        .with(file_layer);
+        .with(file_layer)
+        .with(sse_layer);
     let _ = tracing::subscriber::set_global_default(subscriber);
 
     info!("Starting Mimir v{}", env!("CARGO_PKG_VERSION"));
@@ -161,7 +174,7 @@ async fn main() -> Result<()> {
                 let storage = create_integrated_storage(database, vector_store, storage_crypto_manager).await?;
                 // Create the MCP server with integrated storage
                 let mcp_server = mcp::MimirServer::new(storage);
-                start_mcp_streamhttp_server(config, mcp_server).await
+                start_mcp_streamhttp_server(config, mcp_server, log_tx.clone()).await
             }
         }
     }
@@ -364,7 +377,7 @@ async fn start_mcp_server(config: Config) -> Result<()> {
     start_mcp_service(mcp_server).await
 }
 
-async fn start_mcp_streamhttp_server(config: Config, mcp_server: mcp::MimirServer) -> Result<()> {
+async fn start_mcp_streamhttp_server(config: Config, mcp_server: mcp::MimirServer, log_tx: broadcast::Sender<String>) -> Result<()> {
     let addr = format!("{}:{}", config.server.host, config.server.port);
     println!("Starting MCP server on {}", addr);
     let listener = TcpListener::bind(&addr).await
@@ -384,6 +397,7 @@ async fn start_mcp_streamhttp_server(config: Config, mcp_server: mcp::MimirServe
     );
     // Use the correct handler as in the official example
     let mcp_for_status = mcp_server.clone();
+    let log_tx_for_route = log_tx.clone();
     let app = axum::Router::new()
         // Minimal health endpoint for tray checks
         .route("/health", get(|| async { "ok" }))
@@ -416,6 +430,8 @@ async fn start_mcp_streamhttp_server(config: Config, mcp_server: mcp::MimirServe
                 Json(body)
             }
         }))
+        // Live logs via Server-Sent Events
+        .route("/logs", get(move || logs_sse(log_tx_for_route.clone())))
         .nest_service("/mcp", service);
 
     // Serve the app
@@ -439,6 +455,30 @@ struct StatusSummary {
     vector_memories: usize,
     memory_usage_bytes: usize,
     vector_count_percentage: f32,
+}
+
+// Writer that forwards formatted tracing events to a broadcast channel as JSON strings
+#[derive(Clone)]
+struct ChannelWriter {
+    tx: broadcast::Sender<String>,
+}
+
+impl io::Write for ChannelWriter {
+    fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
+        let s = String::from_utf8_lossy(buf).to_string();
+        let _ = self.tx.send(s);
+        Ok(buf.len())
+    }
+    fn flush(&mut self) -> io::Result<()> { Ok(()) }
+}
+
+async fn logs_sse(tx: broadcast::Sender<String>) -> Sse<impl futures_util::Stream<Item = std::result::Result<Event, Infallible>>> {
+    let rx = tx.subscribe();
+    let stream = BroadcastStream::new(rx)
+        .filter_map(|msg| async move { msg.ok() })
+        .map(|line| Ok(Event::default().data(line)));
+
+    Sse::new(stream).keep_alive(KeepAlive::new().interval(Duration::from_secs(15)).text("keepalive"))
 }
 
 #[cfg(test)]

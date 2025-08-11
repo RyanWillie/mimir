@@ -8,7 +8,8 @@ use mimir_core::{Config, Result};
 use rmcp::transport::streamable_http_server::{
     StreamableHttpService, session::local::LocalSessionManager,
 };
-use axum::routing::get;
+use axum::{routing::get, Json};
+use serde::Serialize;
 use tokio::net::TcpListener;
 use std::path::PathBuf;
 use tracing::{error, info, warn};
@@ -350,15 +351,52 @@ async fn start_mcp_streamhttp_server(config: Config, mcp_server: mcp::MimirServe
     let listener = TcpListener::bind(&addr).await
         .map_err(|e| mimir_core::MimirError::ServerError(format!("Failed to bind: {}", e)))?;
 
+    // Track server start time for uptime
+    let start_time = std::time::Instant::now();
+    let pid = std::process::id();
+    let version = env!("CARGO_PKG_VERSION").to_string();
+    let port = config.server.port;
+
+    let mcp_for_service = mcp_server.clone();
     let service = StreamableHttpService::new(
-        move || Ok(mcp_server.clone()),
+        move || Ok(mcp_for_service.clone()),
         LocalSessionManager::default().into(),
         Default::default(),
     );
     // Use the correct handler as in the official example
+    let mcp_for_status = mcp_server.clone();
     let app = axum::Router::new()
         // Minimal health endpoint for tray checks
         .route("/health", get(|| async { "ok" }))
+        // Status endpoint with summarized JSON
+        .route("/status", get(move || {
+            let mcp = mcp_for_status.clone();
+            let start_time = start_time.clone();
+            async move {
+                let stats = mcp.get_stats().await.ok();
+                let has_embedder = mcp.has_vector_embedder().await;
+                let llm_initialized = mcp.llm_initialized();
+                let similarity_threshold = mcp.similarity_threshold().await;
+                let uptime_secs = start_time.elapsed().as_secs();
+                let body = StatusSummary {
+                    pid,
+                    version: version.clone(),
+                    port,
+                    uptime_secs,
+                    has_embedder,
+                    llm_initialized,
+                    similarity_threshold,
+                    database_memories: stats.as_ref().map(|s| s.database_memories).unwrap_or(0),
+                    vector_memories: stats.as_ref().map(|s| s.vector_memories).unwrap_or(0),
+                    memory_usage_bytes: stats.as_ref().map(|s| s.memory_usage_bytes).unwrap_or(0),
+                    vector_count_percentage: stats
+                        .as_ref()
+                        .map(|s| s.vector_count_percentage)
+                        .unwrap_or(0.0),
+                };
+                Json(body)
+            }
+        }))
         .nest_service("/mcp", service);
 
     // Serve the app
@@ -367,6 +405,21 @@ async fn start_mcp_streamhttp_server(config: Config, mcp_server: mcp::MimirServe
         .map_err(|e| mimir_core::MimirError::ServerError(format!("Axum serve error: {}", e)))?;
 
     Ok(())
+}
+
+#[derive(Serialize)]
+struct StatusSummary {
+    pid: u32,
+    version: String,
+    port: u16,
+    uptime_secs: u64,
+    has_embedder: bool,
+    llm_initialized: bool,
+    similarity_threshold: f32,
+    database_memories: usize,
+    vector_memories: usize,
+    memory_usage_bytes: usize,
+    vector_count_percentage: f32,
 }
 
 #[cfg(test)]

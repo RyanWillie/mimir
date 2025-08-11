@@ -462,6 +462,32 @@ impl rmcp::ServerHandler for MimirServer {
     }
 }
 
+// Public helpers for server status/inspection outside MCP tools
+impl MimirServer {
+    /// Get aggregated storage statistics
+    pub async fn get_stats(&self) -> mimir_core::Result<crate::storage::StorageStats> {
+        self.storage.get_stats().await
+    }
+
+    /// Whether the vector store has an embedder configured
+    pub async fn has_vector_embedder(&self) -> bool {
+        self.storage.has_vector_embedder().await
+    }
+
+    /// Whether the LLM service is initialized
+    pub fn llm_initialized(&self) -> bool {
+        self.storage
+            .get_llm_service()
+            .map(|s| s.is_initialized())
+            .unwrap_or(false)
+    }
+
+    /// Current similarity threshold
+    pub async fn similarity_threshold(&self) -> f32 {
+        self.storage.get_similarity_threshold().await
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

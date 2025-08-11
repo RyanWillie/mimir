@@ -8,14 +8,14 @@ use mimir_core::{Config, Result};
 use rmcp::transport::streamable_http_server::{
     StreamableHttpService, session::local::LocalSessionManager,
 };
-use axum::{routing::get, Json};
+use axum::{routing::{get, post}, Json};
 use serde::Serialize;
 use tokio::net::TcpListener;
 use std::path::PathBuf;
 use tracing::{error, info, warn};
 use tracing_subscriber::{fmt, layer::SubscriberExt, EnvFilter};
 use tracing_appender::rolling;
-use tokio::sync::broadcast;
+use tokio::sync::{broadcast, oneshot};
 use tokio_stream::wrappers::BroadcastStream;
 use futures_util::StreamExt;
 use axum::response::sse::{Sse, Event, KeepAlive};
@@ -397,6 +397,10 @@ async fn start_mcp_streamhttp_server(config: Config, mcp_server: mcp::MimirServe
     );
     // Use the correct handler as in the official example
     let mcp_for_status = mcp_server.clone();
+    let mcp_for_shutdown = mcp_server.clone();
+    // Channel for graceful shutdown trigger from HTTP route
+    let (shutdown_tx, shutdown_rx) = oneshot::channel::<()>();
+    let shutdown_tx = std::sync::Arc::new(std::sync::Mutex::new(Some(shutdown_tx)));
     let log_tx_for_route = log_tx.clone();
     let app = axum::Router::new()
         // Minimal health endpoint for tray checks
@@ -432,10 +436,29 @@ async fn start_mcp_streamhttp_server(config: Config, mcp_server: mcp::MimirServe
         }))
         // Live logs via Server-Sent Events
         .route("/logs", get(move || logs_sse(log_tx_for_route.clone())))
+        // Graceful shutdown endpoint
+        .route("/shutdown", post(move || {
+            let mcp = mcp_for_shutdown.clone();
+            let shutdown_tx = shutdown_tx.clone();
+            async move {
+                // Try to save vector store before shutdown
+                if let Err(e) = mcp.save_vector_store().await {
+                    warn!("Failed to save vector store on shutdown request: {}", e);
+                }
+                // Trigger shutdown (ignore if already sent)
+                if let Some(tx) = shutdown_tx.lock().unwrap().take() {
+                    let _ = tx.send(());
+                }
+                Json(serde_json::json!({"status": "shutting_down"}))
+            }
+        }))
         .nest_service("/mcp", service);
 
     // Serve the app
     axum::serve(listener, app)
+        .with_graceful_shutdown(async move {
+            let _ = shutdown_rx.await;
+        })
         .await
         .map_err(|e| mimir_core::MimirError::ServerError(format!("Axum serve error: {}", e)))?;
 

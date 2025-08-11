@@ -13,6 +13,8 @@ use serde::Serialize;
 use tokio::net::TcpListener;
 use std::path::PathBuf;
 use tracing::{error, info, warn};
+use tracing_subscriber::{fmt, layer::SubscriberExt, EnvFilter};
+use tracing_appender::rolling;
 use rmcp::ServiceExt;
 
 mod mcp;
@@ -61,11 +63,28 @@ enum ServerMode {
 async fn main() -> Result<()> {
     let cli = Cli::parse();
 
-    // Initialize logging
+    // Initialize logging (stdout + rotating file)
     let log_level = if cli.debug { "debug" } else { "info" };
-    tracing_subscriber::fmt()
-        .with_env_filter(format!("mimir={},mimir_core={}", log_level, log_level))
-        .init();
+    let env_filter = EnvFilter::builder()
+        .with_default_directive(format!("mimir={},mimir_core={}", log_level, log_level).parse().unwrap())
+        .from_env_lossy();
+
+    // Prepare log directory
+    let log_dir = mimir_core::get_default_app_dir().join("logs");
+    let _ = std::fs::create_dir_all(&log_dir);
+
+    // Rolling daily file appender
+    let file_appender = rolling::daily(&log_dir, "mimir.log");
+    let (file_writer, _guard) = tracing_appender::non_blocking(file_appender);
+
+    // Build subscriber with stdout and file layers
+    let stdout_layer = fmt::layer().with_writer(std::io::stdout);
+    let file_layer = fmt::layer().with_writer(file_writer);
+    let subscriber = tracing_subscriber::registry()
+        .with(env_filter)
+        .with(stdout_layer)
+        .with(file_layer);
+    let _ = tracing::subscriber::set_global_default(subscriber);
 
     info!("Starting Mimir v{}", env!("CARGO_PKG_VERSION"));
 

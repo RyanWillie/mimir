@@ -8,7 +8,7 @@ use mimir_core::{Config, Result};
 use rmcp::transport::streamable_http_server::{
     StreamableHttpService, session::local::LocalSessionManager,
 };
-use axum::{Router, routing::post};
+use axum::routing::get;
 use tokio::net::TcpListener;
 use std::path::PathBuf;
 use tracing::{error, info, warn};
@@ -357,6 +357,8 @@ async fn start_mcp_streamhttp_server(config: Config, mcp_server: mcp::MimirServe
     );
     // Use the correct handler as in the official example
     let app = axum::Router::new()
+        // Minimal health endpoint for tray checks
+        .route("/health", get(|| async { "ok" }))
         .nest_service("/mcp", service);
 
     // Serve the app

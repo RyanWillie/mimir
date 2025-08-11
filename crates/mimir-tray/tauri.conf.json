@@ -1,0 +1,73 @@
+{
+  "build": {
+    "beforeDevCommand": "",
+    "beforeBuildCommand": "",
+    "devUrl": "http://localhost:1420",
+    "frontendDist": "dist"
+  },
+  "productName": "Mimir Tray",
+  "version": "0.1.0",
+  "identifier": "com.mimir.tray",
+  "app": {
+    "windows": [
+      {
+        "label": "main",
+        "title": "Mimir Tray",
+        "width": 800,
+        "height": 600,
+        "minWidth": 600,
+        "minHeight": 400,
+        "maxWidth": 1600,
+        "maxHeight": 1200,
+        "resizable": true,
+        "fullscreen": false,
+        "visible": false,
+        "decorations": true,
+        "center": true,
+        "skipTaskbar": false
+      }
+    ],
+    "trayIcon": {
+      "iconPath": "icons/icon.png",
+      "iconAsTemplate": true
+    }
+  },
+  "bundle": {
+    "active": true,
+    "targets": "all",
+    "icon": [
+      "icons/32x32.png",
+      "icons/128x128.png",
+      "icons/128x128@2x.png",
+      "icons/icon.icns",
+      "icons/icon.ico"
+    ]
+  },
+  "plugins": {
+    "shell": {
+      "open": true
+    },
+    "fs": {
+      "scope": ["$APPDATA/*", "$APPDATA/mimir/*", "$APPDATA/mimir-tray/*"]
+    },
+    "path": {
+      "all": true
+    },
+    "process": {
+      "relaunch": true,
+      "relaunchDangerousAllowSymlinkMacos": true
+    },
+    "window": {
+      "all": true
+    },
+    "notification": {
+      "all": true
+    },
+    "globalShortcut": {
+      "all": true
+    },
+    "app": {
+      "all": true
+    }
+  }
+} 

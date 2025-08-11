@@ -1,0 +1,10 @@
+Icon files should be placed here:
+
+- icon.png (32x32 for system tray)
+- 32x32.png
+- 128x128.png
+- 128x128@2x.png
+- icon.icns (macOS)
+- icon.ico (Windows)
+
+For now, we'll use a simple text-based icon or create a basic SVG icon. 

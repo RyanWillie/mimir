@@ -95,7 +95,7 @@ impl MimirServer {
     }
 
     /// Add a single memory to the vault
-    #[tool(description = "Pass all useful information about a user")]
+    #[tool(description = "Store a memory that may be useful for the user or the current conversation. This is used for long-term retention of meaningful facts, preferences, summaries, or insights")]
     async fn add_memory(
         &self,
         Parameters(AddMemoryParams { source, text }): Parameters<AddMemoryParams>,
@@ -192,7 +192,7 @@ impl MimirServer {
     }
 
     /// Search memories using vector similarity
-    #[tool(description = "Get provided context from a users message")]
+    #[tool(name = "search_memories", description = "Search for relevant user memories. Useful for retrieving past facts, preferences, or summaries that may help the current task.")]
     async fn search_memories(
         &self,
         Parameters(SearchMemoriesParams { query }): Parameters<SearchMemoriesParams>,

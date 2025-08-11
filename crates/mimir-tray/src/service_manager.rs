@@ -5,6 +5,7 @@ use std::process::{Child, Command, Stdio};
 use std::time::{Duration, Instant};
 use tokio::time::sleep;
 use tracing::{info, warn};
+use std::path::PathBuf;
 
 /// Service status enumeration
 #[derive(Debug, Clone, PartialEq)]
@@ -14,6 +15,18 @@ pub enum ServiceStatus {
     Starting,
     Stopping,
     Error { message: String },
+}
+
+fn resolve_mimir_path() -> Option<PathBuf> {
+    // Try sibling of current executable first (dev/test)
+    if let Ok(curr) = std::env::current_exe() {
+        if let Some(parent) = curr.parent() {
+            let candidate = parent.join(if cfg!(windows) { "mimir.exe" } else { "mimir" });
+            if candidate.exists() { return Some(candidate); }
+        }
+    }
+    // Otherwise rely on PATH resolution by Command
+    None
 }
 
 /// Service manager for handling Mimir daemon
@@ -55,36 +68,31 @@ impl ServiceManager {
             return Ok(());
         }
 
-        // Start the daemon process using cargo run
-        // Equivalent to: cargo run --bin mimir -- --auto-init --port <PORT> [--config <PATH>] mcp
-        let cargo_path = self.get_cargo_path()?;
-        let mut command = Command::new(cargo_path);
+        // Start the daemon process by invoking the installed binary directly
+        // Equivalent to: mimir --auto-init --port <PORT> [--config <PATH>] mcp
+        let mimir_bin = resolve_mimir_path().unwrap_or_else(|| PathBuf::from("mimir"));
+        let mut command = Command::new(mimir_bin);
 
-        // Build program args for the mimir binary (must be after "--")
-        let mut program_args: Vec<String> = Vec::new();
-        program_args.push("--auto-init".to_string());
-        // Pin the port to what the tray expects
-        program_args.push("--port".to_string());
-        program_args.push(self.config.server.port.to_string());
+        let mut args: Vec<String> = Vec::new();
+        args.push("--auto-init".into());
+        args.push("--port".into());
+        args.push(self.config.server.port.to_string());
 
         // Add configuration if available
         let config_path = mimir_core::get_default_config_path();
         if config_path.exists() {
-            program_args.push("--config".to_string());
-            program_args.push(config_path.to_string_lossy().to_string());
+            args.push("--config".into());
+            args.push(config_path.to_string_lossy().to_string());
         }
 
         // Subcommand last so clap parses global flags first
-        program_args.push("mcp".to_string());
+        args.push("mcp".into());
 
         command
-            .arg("run")
-            .arg("--bin")
-            .arg("mimir")
-            .arg("--")
-            .args(program_args)
-            .stdout(Stdio::piped())
-            .stderr(Stdio::piped());
+            .args(args)
+            .stdin(Stdio::null())
+            .stdout(Stdio::null())
+            .stderr(Stdio::null());
 
         match command.spawn() {
             Ok(child) => {
@@ -92,7 +100,7 @@ impl ServiceManager {
                 self.start_time = Some(Instant::now());
                 
                 // Wait a moment for the process to start
-                sleep(Duration::from_millis(500)).await;
+                sleep(Duration::from_millis(800)).await;
                 
                 // Check if process is still running
                 if let Some(ref mut child) = self.daemon_process {
@@ -103,6 +111,8 @@ impl ServiceManager {
                                 uptime: Duration::from_secs(0),
                             };
                             info!("Daemon started successfully with PID: {}", child.id());
+                            // Optionally poll /health briefly to confirm readiness
+                            let _ = self.wait_for_health(Duration::from_secs(5)).await;
                             Ok(())
                         }
                         Ok(Some(exit_status)) => {
@@ -156,37 +166,47 @@ impl ServiceManager {
         self.status = ServiceStatus::Stopping;
         info!("Stopping Mimir daemon...");
 
-        // Try to stop our managed process first
+        // First, attempt graceful shutdown via HTTP
+        let client = reqwest::Client::new();
+        let url = format!("http://localhost:{}/shutdown", self.config.server.port);
+        let _ = client.post(&url).timeout(Duration::from_secs(2)).send().await;
+
+        // If we spawned the process, wait briefly for it to exit
         if let Some(mut child) = self.daemon_process.take() {
-            match child.kill() {
-                Ok(_) => {
-                    info!("Sent kill signal to daemon process");
-                    // Wait for process to terminate
-                    match child.wait() {
-                        Ok(_) => {
-                            info!("Daemon process terminated");
-                            self.status = ServiceStatus::Stopped;
-                            self.start_time = None;
-                            Ok(())
-                        }
-                        Err(e) => {
-                            warn!("Failed to wait for daemon process: {}", e);
-                            self.status = ServiceStatus::Stopped;
-                            self.start_time = None;
-                            Ok(())
-                        }
-                    }
+            let waited = tokio::time::timeout(Duration::from_secs(5), async {
+                loop {
+                    if let Ok(Some(_)) = child.try_wait() { break; }
+                    sleep(Duration::from_millis(150)).await;
                 }
-                Err(e) => {
-                    warn!("Failed to kill daemon process: {}", e);
-                    // Try to stop any running daemon
-                    self.stop_any_daemon().await
-                }
+            }).await;
+
+            if waited.is_err() {
+                // Timed out; try force kill
+                let _ = child.kill();
+                let _ = child.wait();
             }
-        } else {
-            // No managed process, try to stop any running daemon
-            self.stop_any_daemon().await
+            info!("Daemon process terminated");
+            self.status = ServiceStatus::Stopped;
+            self.start_time = None;
+            return Ok(());
         }
+
+        // For processes not started by this tray, wait for /health to drop
+        let health_gone = tokio::time::timeout(Duration::from_secs(5), async {
+            loop {
+                if !self.is_daemon_running().await { break; }
+                sleep(Duration::from_millis(150)).await;
+            }
+        }).await.is_ok();
+
+        if health_gone { 
+            self.status = ServiceStatus::Stopped; 
+            self.start_time = None; 
+            return Ok(());
+        }
+
+        // Fall back to best-effort kill of any running daemon
+        self.stop_any_daemon().await
     }
 
     /// Stop any running daemon process
@@ -313,22 +333,20 @@ impl ServiceManager {
         self.start_time.map(|start| start.elapsed())
     }
 
-    /// Get the path to cargo for running the daemon
-    fn get_cargo_path(&self) -> Result<std::path::PathBuf> {
-        // Try to find cargo in PATH
-        if let Ok(path) = std::env::var("PATH") {
-            for dir in path.split(':') {
-                let cargo_path = std::path::Path::new(dir).join("cargo");
-                if cargo_path.exists() {
-                    return Ok(cargo_path);
-                }
+    /// Wait briefly for /health to report ready
+    async fn wait_for_health(&self, max: std::time::Duration) -> bool {
+        let client = reqwest::Client::new();
+        let url = format!("http://localhost:{}/health", self.config.server.port);
+        let start = std::time::Instant::now();
+        while start.elapsed() < max {
+            if let Ok(resp) = client.get(&url).timeout(std::time::Duration::from_millis(500)).send().await {
+                if resp.status().is_success() { return true; }
             }
+            tokio::time::sleep(std::time::Duration::from_millis(250)).await;
         }
-
-        Err(mimir_core::MimirError::Initialization(
-            "Could not find cargo executable".to_string()
-        ))
+        false
     }
+
 
     /// Update the service status based on current state
     pub async fn update_status(&mut self) {

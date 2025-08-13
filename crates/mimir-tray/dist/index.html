@@ -1,0 +1,181 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Mimir Tray</title>
+    <style>
+      body { font-family: -apple-system, Segoe UI, Roboto, sans-serif; margin: 0; }
+      header { padding: 10px 16px; background: #0f172a; color: #fff; }
+      .tabs { display: flex; border-bottom: 1px solid #e5e7eb; }
+      .tab { padding: 10px 14px; cursor: pointer; }
+      .tab.active { border-bottom: 2px solid #0ea5e9; color: #0ea5e9; }
+      .content { padding: 16px; }
+      .row { display: flex; gap: 12px; align-items: center; margin-bottom: 12px; }
+      .btn { padding: 6px 10px; border: 1px solid #0ea5e9; background: white; color: #0ea5e9; border-radius: 6px; cursor: pointer; }
+      .btn.secondary { border-color: #94a3b8; color: #334155; }
+      .grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
+      .card { border: 1px solid #e5e7eb; border-radius: 8px; padding: 12px; }
+      pre { background: #0b1020; color: #cbd5e1; padding: 10px; border-radius: 8px; height: 380px; overflow: auto; }
+      small { color: #64748b; }
+    </style>
+  </head>
+  <body>
+    <header>
+      <strong>Mimir Tray</strong>
+    </header>
+    <div class="tabs">
+      <div class="tab active" data-tab="status">Status</div>
+      <div class="tab" data-tab="logs">Logs</div>
+    </div>
+    <div class="content">
+      <section id="status" class="panel">
+        <div class="row" style="flex-wrap:wrap">
+          <button id="start" class="btn">Start Daemon</button>
+          <button id="stop" class="btn secondary">Stop Daemon</button>
+          <label style="display:flex;align-items:center;gap:6px">
+            <input type="checkbox" id="enable-full" /> Enable Embedder & LLM
+          </label>
+          <button id="refresh" class="btn">Refresh</button>
+          <small id="last-updated"></small>
+        </div>
+        <div id="status-msg" style="color:#b91c1c;margin-bottom:10px;display:none"></div>
+        <div class="grid">
+          <div class="card">
+            <div>PID: <span id="pid">-</span></div>
+            <div>Port: <span id="port">-</span></div>
+            <div>Uptime: <span id="uptime">-</span></div>
+            <div>Version: <span id="version">-</span></div>
+          </div>
+          <div class="card">
+            <div>Embedder: <span id="embedder">-</span></div>
+            <div>LLM Initialized: <span id="llm">-</span></div>
+            <div>Similarity Threshold: <span id="threshold">-</span></div>
+          </div>
+          <div class="card">
+            <div>DB Memories: <span id="db-mem">-</span></div>
+            <div>Vector Memories: <span id="vec-mem">-</span></div>
+          </div>
+          <div class="card">
+            <div>Memory Usage: <span id="mem-usage">-</span></div>
+            <div>Vector %: <span id="vec-pct">-</span></div>
+          </div>
+        </div>
+      </section>
+      <section id="logs" class="panel" style="display:none">
+        <div class="row">
+          <button id="logs-start" class="btn">Start Streaming</button>
+          <button id="logs-stop" class="btn secondary">Stop Streaming</button>
+          <button id="logs-clear" class="btn secondary">Clear</button>
+          <button id="logs-test" class="btn secondary">Test Emit</button>
+        </div>
+        <pre id="logs-view"></pre>
+      </section>
+    </div>
+    <script>
+      const invoke = (window.__TAURI__?.core?.invoke) || (window.__TAURI__?.invoke) || (async()=>{ throw new Error('Tauri invoke not found'); });
+      const app = {
+        async getStatus() { return await invoke('tray_get_status'); },
+        async isPasswordMode() { return await invoke('tray_is_password_mode'); },
+        async start(password, full_features) { return await invoke('tray_start_daemon', { password, full_features }); },
+        async stop() { return await invoke('tray_stop_daemon'); },
+        async startLogs() { return await invoke('tray_start_logs'); },
+        async stopLogs() { return await invoke('tray_stop_logs'); },
+        async emitTest(msg) { return await invoke('tray_emit_test_log', { msg }); },
+      };
+
+      // Tabs
+      document.querySelectorAll('.tab').forEach(t => t.addEventListener('click', () => {
+        document.querySelectorAll('.tab').forEach(el => el.classList.remove('active'));
+        t.classList.add('active');
+        const tab = t.getAttribute('data-tab');
+        document.querySelectorAll('.panel').forEach(p => p.style.display = 'none');
+        document.getElementById(tab).style.display = '';
+      }));
+
+      // Status actions
+      const msgEl = document.getElementById('status-msg');
+      function showMsg(s){ msgEl.textContent = s; msgEl.style.display = s? 'block':'none'; }
+
+      document.getElementById('start').addEventListener('click', async () => {
+        try {
+          const needsPw = await app.isPasswordMode();
+          let pw = undefined;
+          if (needsPw) {
+            pw = window.prompt('Enter vault password:');
+            if (pw == null || pw.trim() === '') return;
+          }
+          const full = document.getElementById('enable-full').checked;
+          await app.start(pw, full);
+          showMsg('Starting daemon...');
+          await refresh();
+        } catch (e) {
+          showMsg('Failed to start daemon: ' + e);
+        }
+      });
+      document.getElementById('stop').addEventListener('click', async () => { await app.stop(); await refresh(); });
+      document.getElementById('refresh').addEventListener('click', refresh);
+
+      async function refresh() {
+        try {
+          const s = await app.getStatus();
+          showMsg('');
+          const fmtBool = v => v ? 'Yes' : 'No';
+          const fmtBytes = n => (n/1024/1024).toFixed(2) + ' MiB';
+          document.getElementById('pid').textContent = s.pid;
+          document.getElementById('port').textContent = s.port;
+          document.getElementById('uptime').textContent = s.uptime_secs + 's';
+          document.getElementById('version').textContent = s.version;
+          document.getElementById('embedder').textContent = fmtBool(s.has_embedder);
+          document.getElementById('llm').textContent = fmtBool(s.llm_initialized);
+          document.getElementById('threshold').textContent = s.similarity_threshold.toFixed(2);
+          document.getElementById('db-mem').textContent = s.database_memories;
+          document.getElementById('vec-mem').textContent = s.vector_memories;
+          document.getElementById('mem-usage').textContent = fmtBytes(s.memory_usage_bytes);
+          document.getElementById('vec-pct').textContent = s.vector_count_percentage.toFixed(1) + '%';
+          document.getElementById('last-updated').textContent = 'Updated ' + new Date().toLocaleTimeString();
+        } catch (e) {
+          showMsg('Daemon not reachable yet. Click Start, then Refresh.');
+        }
+      }
+
+      // Logs actions
+      const logsView = document.getElementById('logs-view');
+      document.getElementById('logs-start').addEventListener('click', async () => {
+        logsView.textContent += '[ui] invoking startLogs...\n';
+        try { await app.startLogs(); } catch (e) { logsView.textContent += '[ui] startLogs failed: ' + e + '\n'; }
+      });
+      document.getElementById('logs-stop').addEventListener('click', async () => { await app.stopLogs(); });
+      document.getElementById('logs-clear').addEventListener('click', () => { logsView.textContent = ''; });
+      document.getElementById('logs-test').addEventListener('click', async () => {
+        logsView.textContent += '[ui] invoking test emit...\n';
+        try { await app.emitTest('test from UI'); } catch (e) { logsView.textContent += '[ui] test emit failed: ' + e + '\n'; }
+      });
+
+      // Listen to log_line events (explicit and awaited)
+      (async () => {
+        try {
+          const { event } = window.__TAURI__ || {};
+          if (!event) return;
+          await event.listen('log_line', (e) => {
+            const line = (e?.payload ?? '').toString();
+            if (line) {
+              logsView.textContent += line + '\n';
+              logsView.scrollTop = logsView.scrollHeight;
+            }
+          });
+          try { await app.startLogs(); logsView.textContent += '[ui] auto-started log stream\n'; } catch (_) {}
+        } catch (_) {}
+      })();
+
+      // Auto-start logs when opening the Logs tab
+      document.querySelector('[data-tab="logs"]').addEventListener('click', async () => {
+        try { await app.startLogs(); } catch (_) {}
+      });
+
+      // Initial load
+      refresh();
+      setInterval(refresh, 4000);
+    </script>
+  </body>
+  </html>

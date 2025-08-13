@@ -71,9 +71,8 @@ async fn main() -> Result<()> {
 
     // Initialize logging (stdout + rotating file + SSE layer)
     let log_level = if cli.debug { "debug" } else { "info" };
-    let env_filter = EnvFilter::builder()
-        .with_default_directive(format!("mimir={},mimir_core={}", log_level, log_level).parse().unwrap())
-        .from_env_lossy();
+    let env_filter = EnvFilter::try_from_default_env()
+        .unwrap_or_else(|_| EnvFilter::new(log_level));
 
     // Prepare log directory
     let log_dir = mimir_core::get_default_app_dir().join("logs");
@@ -141,17 +140,28 @@ async fn main() -> Result<()> {
         }
     }
 
-    // Ensure model files are present and valid
-    let (model_path, _tokenizer_path, _vocab_path) =
-        model::ensure_model_files().await.map_err(mimir_core::MimirError::ServerError)?;
-    eprintln!("BGE model file ready at: {}", model_path.display());
+    // Ensure model files are present and valid, unless explicitly skipped (useful for tests)
+    let skip_models = std::env::var("MIMIR_SKIP_MODELS").is_ok();
+    let model_path_opt: Option<std::path::PathBuf> = if !skip_models {
+        let (model_path, _tokenizer_path, _vocab_path) =
+            model::ensure_model_files().await.map_err(mimir_core::MimirError::ServerError)?;
+        eprintln!("BGE model file ready at: {}", model_path.display());
 
-    // Ensure Gemma3 model is available
-    let gemma3_path = model::ensure_gemma3_model().await.map_err(mimir_core::MimirError::ServerError)?;
-    eprintln!("Gemma3 model file ready at: {}", gemma3_path.display());
+        let gemma3_path = model::ensure_gemma3_model().await.map_err(mimir_core::MimirError::ServerError)?;
+        eprintln!("Gemma3 model file ready at: {}", gemma3_path.display());
+        Some(model_path)
+    } else {
+        warn!("Skipping model downloads due to MIMIR_SKIP_MODELS env var");
+        None
+    };
 
-    // Initialize LLM service
-    llm_service::initialize_llm_service(&config).await?;
+    // Initialize LLM service unless disabled via env (useful for tests/CI)
+    let disable_llm = std::env::var("MIMIR_DISABLE_LLM").is_ok();
+    if !disable_llm {
+        llm_service::initialize_llm_service(&config).await?;
+    } else {
+        warn!("LLM initialization disabled via MIMIR_DISABLE_LLM env var");
+    }
 
     // Determine server mode
     let server_mode = cli.mode.unwrap_or(ServerMode::Mcp { stdio: false });
@@ -168,8 +178,18 @@ async fn main() -> Result<()> {
                 let (db_crypto_manager, storage_crypto_manager) = setup_crypto_managers(&config).await?;
                 // Create database
                 let database = create_database(&config, db_crypto_manager)?;
-                // Create vector store
-                let vector_store = create_vector_store_with_model(&config, &model_path).await?;
+                // Create vector store (when skipping models, fall back to non-embedder path)
+                let vector_store = if skip_models {
+                    mimir_vector::ThreadSafeVectorStore::new(
+                        config.get_vault_path().as_path(),
+                        128,
+                        None,
+                        None,
+                    ).map_err(|e| mimir_core::MimirError::VectorStore(e.to_string()))?
+                } else {
+                    let model_path = model_path_opt.as_ref().expect("model_path available when not skipping models");
+                    create_vector_store_with_model(&config, model_path.as_path()).await?
+                };
                 // Create integrated storage
                 let storage = create_integrated_storage(database, vector_store, storage_crypto_manager).await?;
                 // Create the MCP server with integrated storage
@@ -187,6 +207,15 @@ async fn setup_crypto_managers(
     mimir_core::crypto::CryptoManager,
     mimir_core::crypto::CryptoManager,
 )> {
+    // Prefer non-interactive password from env when provided (e.g., tests/CI)
+    if let Ok(pw) = std::env::var("MIMIR_VAULT_PASSWORD") {
+        let db_crypto_manager =
+            mimir_core::crypto::CryptoManager::with_password(&config.get_keyset_path(), pw.as_str())?;
+        let storage_crypto_manager =
+            mimir_core::crypto::CryptoManager::with_password(&config.get_keyset_path(), pw.as_str())?;
+        return Ok((db_crypto_manager, storage_crypto_manager));
+    }
+
     if config.use_password_encryption {
         info!("Password encryption detected. Please enter your vault password:");
 
@@ -449,6 +478,11 @@ async fn start_mcp_streamhttp_server(config: Config, mcp_server: mcp::MimirServe
                 if let Some(tx) = shutdown_tx.lock().unwrap().take() {
                     let _ = tx.send(());
                 }
+                // Fallback hard-exit in case some background tasks keep runtime alive
+                tokio::spawn(async move {
+                    tokio::time::sleep(Duration::from_millis(100)).await;
+                    std::process::exit(0);
+                });
                 Json(serde_json::json!({"status": "shutting_down"}))
             }
         }))
@@ -496,10 +530,14 @@ impl io::Write for ChannelWriter {
 }
 
 async fn logs_sse(tx: broadcast::Sender<String>) -> Sse<impl futures_util::Stream<Item = std::result::Result<Event, Infallible>>> {
+    use futures_util::{stream, StreamExt};
     let rx = tx.subscribe();
-    let stream = BroadcastStream::new(rx)
+    // Initial event so clients see something immediately
+    let initial = stream::once(async { Ok(Event::default().data("sse-connected")) });
+    let logs = BroadcastStream::new(rx)
         .filter_map(|msg| async move { msg.ok() })
         .map(|line| Ok(Event::default().data(line)));
+    let stream = initial.chain(logs);
 
     Sse::new(stream).keep_alive(KeepAlive::new().interval(Duration::from_secs(15)).text("keepalive"))
 }
